@@ -23,6 +23,7 @@ interface TimelineProps {
 export default function Timeline({ snapshots, searchQuery, startingWindow, fullTimelineRange }: TimelineProps) {
   const [hoveredEvent, setHoveredEvent] = useState<TimelineEvent | null>(null);
   const [hoverPosition, setHoverPosition] = useState(0);
+  const centerWeight = 0.01; // 0 = zoom to cursor, 1 = zoom to center
   
   // Calculate optimal zoom level - show all data with minimal padding
   const getOptimalZoom = React.useCallback(() => {
@@ -367,7 +368,11 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
     console.log('  newZoom:', newZoom);
     console.log('  newWindowWidth:', newWindowWidth);
     
-    const newViewCenter = dataPositionUnderCursor + newWindowWidth * (0.5 - cursorPercent / 100);
+    // Blend cursor position with center position based on centerWeight
+    // centerWeight = 0: zoom exactly to cursor (original behavior)
+    // centerWeight = 1: zoom to screen center
+    const effectiveCursorPercent = cursorPercent * (1 - centerWeight) + 50 * centerWeight;
+    const newViewCenter = dataPositionUnderCursor + newWindowWidth * (0.5 - effectiveCursorPercent / 100);
     
     setZoom(newZoom);
     
