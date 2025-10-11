@@ -224,7 +224,7 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
   const getTicks = () => {
     const startDate = positionToDate(windowStart);
     const endDate = positionToDate(windowEnd);
-    const windowDuration = endDate - startDate;
+    const windowDuration = endDate.getTime() - startDate.getTime();
     const ticks = [];
     
     // Determine tick interval based on window size
@@ -466,27 +466,32 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
                 
                 {/* Event Markers */}
                 {visibleEvents.map((event, index) => {
-                  const baseSize = Math.max(8, event.prominence);
-                  
                   // Calculate actual window duration in milliseconds
                   const startDate = positionToDate(windowStart);
                   const endDate = positionToDate(windowEnd);
-                  const windowDurationMs = endDate - startDate;
+                  const windowDurationMs = endDate.getTime() - startDate.getTime();
                   
                   // Convert to hours for easier calculation
                   const windowHours = windowDurationMs / (60 * 60 * 1000);
-                  const yearInHours = 365 * 24; // ~8760 hours
                   
-                  // Logarithmic scale from year view to hour view
-                  // At year view (8760 hours): small
-                  // At hour view (1 hour): 5x larger
-                  const logWindow = Math.log(windowHours);
-                  const logMin = Math.log(1); // 1 hour
-                  const logMax = Math.log(yearInHours * 5); // 5 years
-                  const normalizedLog = (logMax - logWindow) / (logMax - logMin);
-                  const sizeMultiplier = 1 + normalizedLog * 4; // 1x to 5x
+                  // Define min/max window sizes and circle sizes
+                  const MIN_WINDOW_HOURS = 1; // 1 hour - most zoomed in
+                  // Max window is the full timeline range from first snapshot to now
+                  const maxWindowMs = fullTimelineRange 
+                    ? fullTimelineRange.end.getTime() - fullTimelineRange.start.getTime()
+                    : 365 * 24 * 60 * 60 * 1000; // fallback to 1 year
+                  const MAX_WINDOW_HOURS = maxWindowMs / (60 * 60 * 1000);
+                  const MIN_CIRCLE_SIZE = 6; // pixels - at max zoom out
+                  const MAX_CIRCLE_SIZE = 20; // pixels - at 1 hour zoom
                   
-                  const size = baseSize * sizeMultiplier;
+                  // Clamp window hours to our range
+                  const clampedWindowHours = Math.max(MIN_WINDOW_HOURS, Math.min(MAX_WINDOW_HOURS, windowHours));
+                  
+                  // Linear interpolation: smaller window (more zoom) = larger circles
+                  // At 1 hour window: max circle size
+                  // At max window: min circle size
+                  const ratio = (clampedWindowHours - MIN_WINDOW_HOURS) / (MAX_WINDOW_HOURS - MIN_WINDOW_HOURS);
+                  const size = MAX_CIRCLE_SIZE - ratio * (MAX_CIRCLE_SIZE - MIN_CIRCLE_SIZE);
                   
                   return (
                     <div
