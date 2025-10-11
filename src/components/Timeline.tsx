@@ -1,77 +1,182 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { SlidersHorizontal } from 'lucide-react';
+import type { Snapshot } from '@/types/memoir-api.types';
 
-export default function Timeline() {
-  const [hoveredEvent, setHoveredEvent] = useState(null);
+interface TimelineEvent {
+  date: string;
+  position: number;
+  title: string;
+  description: string;
+  prominence: number;
+  displayPosition?: number;
+  snapshot?: Snapshot;
+}
+
+interface TimelineProps {
+  snapshots: Snapshot[];
+  searchQuery: string;
+  startingWindow: string;
+  fullTimelineRange: { start: Date; end: Date } | null;
+}
+
+export default function Timeline({ snapshots, searchQuery, startingWindow, fullTimelineRange }: TimelineProps) {
+  const [hoveredEvent, setHoveredEvent] = useState<TimelineEvent | null>(null);
   const [hoverPosition, setHoverPosition] = useState(0);
-  const [showFilters, setShowFilters] = useState(false);
-  const [startingWindow, setStartingWindow] = useState('week');
   
-  // Calculate initial zoom based on starting window
-  const getZoomForWindow = (window) => {
-    const totalDays = 5 * 365; // ~5 years
+  // Calculate optimal zoom level - show all data with minimal padding
+  const getOptimalZoom = React.useCallback(() => {
+    // zoom = 1 means windowWidth = 100 (show exactly 100% of search results)
+    // Use 0.95 for tiny bit of padding so events aren't right at edge
+    const zoom = 0.95;
+    
+    console.log('🔍 getOptimalZoom: setting zoom to', zoom, '(showing', 100 / zoom, '% of data)');
+    
+    return zoom;
+  }, []);
+
+  // Calculate zoom for specific window setting (when user manually selects a time window)
+  const getZoomForWindow = React.useCallback((window: string, dataTimeRangeMs: number) => {
     switch(window) {
-      case 'hour': return totalDays * 24; // ~43800
-      case 'day': return totalDays; // ~1825
-      case 'week': return totalDays / 7; // ~260
-      case 'month': return totalDays / 30; // ~60
-      case 'year': return 5; // 5
-      default: return 260;
+      case 'hour': return (dataTimeRangeMs / (60 * 60 * 1000)) * 100;
+      case 'day': return (dataTimeRangeMs / (24 * 60 * 60 * 1000)) * 100;
+      case 'week': return (dataTimeRangeMs / (7 * 24 * 60 * 60 * 1000)) * 100;
+      case 'month': return (dataTimeRangeMs / (30 * 24 * 60 * 60 * 1000)) * 100;
+      case 'year': return (dataTimeRangeMs / (365 * 24 * 60 * 60 * 1000)) * 100;
+      case 'auto':
+      default: 
+        return getOptimalZoom();
     }
-  };
+  }, [getOptimalZoom]);
   
-  const [zoom, setZoom] = useState(getZoomForWindow(startingWindow));
+  const [zoom, setZoom] = useState(1);
   const [viewCenter, setViewCenter] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState(0);
-  const timelineRef = useRef(null);
-  const filtersRef = useRef(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
 
-  // Events with prominence (1-10, 10 being most important)
-  const allEvents = [
-    { date: '2020-01-15', position: 1, title: 'Project Kickoff', description: 'Initial planning and team formation', prominence: 8 },
-    { date: '2020-02-20', position: 4, title: 'Team Expansion', description: 'Hired key engineers', prominence: 3 },
-    { date: '2020-04-10', position: 15, title: 'First Prototype', description: 'MVP development completed', prominence: 7 },
-    { date: '2020-06-05', position: 22, title: 'Design System', description: 'UI/UX framework established', prominence: 4 },
-    { date: '2020-08-12', position: 30, title: 'Beta Release', description: 'Limited user testing began', prominence: 6 },
-    { date: '2020-11-28', position: 40, title: 'Bug Fixes', description: 'Major stability improvements', prominence: 2 },
-    { date: '2021-02-14', position: 45, title: 'Public Launch', description: 'Official product release', prominence: 10 },
-    { date: '2021-04-22', position: 50, title: 'First 10K Users', description: 'Reached initial user milestone', prominence: 5 },
-    { date: '2021-07-08', position: 55, title: 'Series A', description: '$5M funding raised', prominence: 9 },
-    { date: '2021-10-15', position: 60, title: 'New Features', description: 'Added collaboration tools', prominence: 4 },
-    { date: '2022-01-10', position: 65, title: 'International', description: 'Entered EU markets', prominence: 8 },
-    { date: '2022-05-18', position: 70, title: 'API Launch', description: 'Developer platform released', prominence: 6 },
-    { date: '2022-09-03', position: 75, title: '1M Users', description: 'Major milestone achieved', prominence: 9 },
-    { date: '2022-12-20', position: 78, title: 'Year End Update', description: 'Platform improvements', prominence: 3 },
-    { date: '2023-03-12', position: 82, title: 'Mobile App', description: 'iOS and Android launch', prominence: 7 },
-    { date: '2023-06-25', position: 85, title: 'Security Audit', description: 'Passed SOC 2 compliance', prominence: 5 },
-    { date: '2023-11-08', position: 88, title: 'Series B', description: '$20M funding raised', prominence: 10 },
-    { date: '2024-02-14', position: 91, title: 'Enterprise Plan', description: 'B2B offering launched', prominence: 6 },
-    { date: '2024-05-20', position: 94, title: 'AI Features', description: 'Machine learning integration', prominence: 8 },
-    { date: '2024-08-10', position: 97, title: 'Partnerships', description: 'Strategic alliances formed', prominence: 4 },
-    { date: '2024-10-01', position: 100, title: 'Present', description: 'Continued growth and expansion', prominence: 7 },
-  ];
+  // Calculate time range from snapshots
+  const timeRange = React.useMemo(() => {
+    if (!snapshots || snapshots.length === 0) {
+      return null;
+    }
+
+    const timestamps = snapshots
+      .map(s => s.timestamp ? new Date(s.timestamp).getTime() : null)
+      .filter((t): t is number => t !== null);
+    
+    if (timestamps.length === 0) return null;
+
+    const minTime = Math.min(...timestamps);
+    const maxTime = Math.max(...timestamps);
+    
+    return {
+      minTime,
+      maxTime,
+      duration: maxTime - minTime || 1,
+    };
+  }, [snapshots]);
+
+  // Convert snapshots to timeline events
+  const allEvents: TimelineEvent[] = React.useMemo(() => {
+    if (!snapshots || snapshots.length === 0 || !timeRange) return [];
+
+    return snapshots
+      .filter(s => s.timestamp)
+      .map((snapshot, index) => {
+        const timestamp = new Date(snapshot.timestamp!).getTime();
+        const position = ((timestamp - timeRange.minTime) / timeRange.duration) * 100;
+        
+        // Use similarity score as prominence (0-1 -> 1-10)
+        const prominence = snapshot.similarity 
+          ? Math.max(1, Math.min(10, snapshot.similarity * 10))
+          : 5;
+
+        // Extract title from summary (first line or first 50 chars)
+        const summary = snapshot.summary || 'Snapshot';
+        const lines = summary.split('\n');
+        const title = lines[0].slice(0, 60) + (lines[0].length > 60 ? '...' : '');
+        
+        // Use rest of summary as description
+        const restOfSummary = lines.slice(1).join('\n').trim();
+        const description = restOfSummary || summary.slice(0, 150);
+
+        return {
+          date: new Date(snapshot.timestamp!).toLocaleString(),
+          position,
+          title,
+          description: description || 'No additional details',
+          prominence,
+          snapshot,
+        };
+      });
+  }, [snapshots, timeRange]);
+
+  // Update zoom when time range changes
+  React.useEffect(() => {
+    if (timeRange) {
+      console.log('📊 Timeline effect triggered');
+      console.log('  timeRange.duration (ms):', timeRange.duration);
+      console.log('  timeRange.duration (hours):', timeRange.duration / (60 * 60 * 1000));
+      console.log('  startingWindow:', startingWindow);
+      
+      const newZoom = startingWindow === 'auto' 
+        ? getOptimalZoom()
+        : getZoomForWindow(startingWindow, timeRange.duration);
+      
+      console.log('  Setting zoom to:', newZoom);
+      setZoom(newZoom);
+      
+      // Always center at 50 (middle of the 0-100 data range)
+      setViewCenter(50);
+      console.log('  viewCenter set to 50 (centered on data)');
+    }
+  }, [timeRange, startingWindow, getZoomForWindow, getOptimalZoom]);
 
   const windowWidth = 100 / zoom;
-  const windowStart = Math.max(0, viewCenter - windowWidth / 2);
-  const windowEnd = Math.min(100, viewCenter + windowWidth / 2);
+  // Don't clamp when showing padding (windowWidth > 100)
+  // This allows the data (0-100) to be centered with empty space on sides
+  const windowStart = viewCenter - windowWidth / 2;
+  const windowEnd = viewCenter + windowWidth / 2;
+
+  // Log visible window calculation
+  React.useEffect(() => {
+    if (timeRange) {
+      const visibleDurationMs = (timeRange.duration * windowWidth) / 100;
+      const visibleHours = visibleDurationMs / (60 * 60 * 1000);
+      const visibleDays = visibleDurationMs / (24 * 60 * 60 * 1000);
+      
+      console.log('👁️ Visible window:');
+      console.log('  zoom:', zoom);
+      console.log('  windowWidth:', windowWidth, '%');
+      console.log('  windowStart:', windowStart, '%');
+      console.log('  windowEnd:', windowEnd, '%');
+      console.log('  visibleDurationMs:', visibleDurationMs);
+      console.log('  visibleHours:', visibleHours);
+      console.log('  visibleDays:', visibleDays);
+    }
+  }, [zoom, windowWidth, windowStart, windowEnd, timeRange]);
 
   const visibleEvents = allEvents
     .filter(e => e.position >= windowStart && e.position <= windowEnd)
     .sort((a, b) => b.prominence - a.prominence)
-    .slice(0, 15)
+    .slice(0, 30)
     .map(e => ({
       ...e,
       displayPosition: ((e.position - windowStart) / windowWidth) * 100
     }));
 
-  const positionToDate = (position) => {
-    const startDate = new Date('2020-01-01T00:00:00');
-    const endDate = new Date('2024-10-01T00:00:00');
-    const totalTime = endDate - startDate;
-    const time = startDate.getTime() + (position / 100) * totalTime;
+  const positionToDate = (position: number) => {
+    if (!timeRange) {
+      // Fallback to default date range
+      const startDate = new Date();
+      startDate.setFullYear(startDate.getFullYear() - 1);
+      return startDate;
+    }
+
+    // Position 0-100 maps to timeRange.minTime to timeRange.maxTime
+    // But positions can go outside this range when zoomed out
+    const time = timeRange.minTime + (position / 100) * timeRange.duration;
     return new Date(time);
   };
 
@@ -79,8 +184,16 @@ export default function Timeline() {
     const labels = [];
     const numLabels = 5;
     
+    // When zoomed out beyond the data range, show the extended timeline
     const startDate = positionToDate(windowStart);
     const endDate = positionToDate(windowEnd);
+    
+    console.log('📅 Time labels for window:', {
+      windowStart,
+      windowEnd,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+    });
     
     for (let i = 0; i < numLabels; i++) {
       const fraction = i / (numLabels - 1);
@@ -140,12 +253,12 @@ export default function Timeline() {
       minorInterval = 30 * 24 * 60 * 60 * 1000; // ~1 month
     }
     
+    if (!timeRange) return [];
+
     // Generate major ticks
     let time = Math.floor(startDate.getTime() / majorInterval) * majorInterval;
     while (time <= endDate.getTime()) {
-      const timelineStart = new Date('2020-01-01T00:00:00').getTime();
-      const timelineEnd = new Date('2024-10-01T00:00:00').getTime();
-      const dataPosition = ((time - timelineStart) / (timelineEnd - timelineStart)) * 100;
+      const dataPosition = ((time - timeRange.minTime) / timeRange.duration) * 100;
       
       if (dataPosition >= windowStart && dataPosition <= windowEnd) {
         const displayPosition = ((dataPosition - windowStart) / windowWidth) * 100;
@@ -159,9 +272,7 @@ export default function Timeline() {
     while (time <= endDate.getTime()) {
       const isMajor = time % majorInterval === 0;
       if (!isMajor) {
-        const timelineStart = new Date('2020-01-01T00:00:00').getTime();
-        const timelineEnd = new Date('2024-10-01T00:00:00').getTime();
-        const dataPosition = ((time - timelineStart) / (timelineEnd - timelineStart)) * 100;
+        const dataPosition = ((time - timeRange.minTime) / timeRange.duration) * 100;
         
         if (dataPosition >= windowStart && dataPosition <= windowEnd) {
           const displayPosition = ((dataPosition - windowStart) / windowWidth) * 100;
@@ -175,7 +286,11 @@ export default function Timeline() {
   };
 
   const getTimeframeLabel = () => {
-    const totalDays = (5 * 365) / zoom;
+    if (!timeRange) return 'No data';
+    
+    // Calculate visible window duration in milliseconds
+    const visibleDurationMs = (timeRange.duration * windowWidth) / 100;
+    const totalDays = visibleDurationMs / (24 * 60 * 60 * 1000);
     
     if (totalDays >= 365) {
       return `${(totalDays / 365).toFixed(1)} years`;
@@ -183,22 +298,26 @@ export default function Timeline() {
       return `${(totalDays / 30).toFixed(1)} months`;
     } else if (totalDays >= 1) {
       return `${totalDays.toFixed(1)} days`;
-    } else {
+    } else if (totalDays >= 1/24) {
       return `${(totalDays * 24).toFixed(1)} hours`;
+    } else {
+      return `${(totalDays * 24 * 60).toFixed(0)} minutes`;
     }
   };
 
-  const handleTimelineHover = (e) => {
-    if (!timelineRef.current || isDragging) return;
+  const handleTimelineHover = (e: React.MouseEvent) => {
+    if (!timelineRef.current || isDragging || visibleEvents.length === 0) return;
     const rect = timelineRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const percentage = (x / rect.width) * 100;
     
     const closest = visibleEvents.reduce((prev, curr) => {
-      return Math.abs(curr.displayPosition - percentage) < Math.abs(prev.displayPosition - percentage) ? curr : prev;
+      const prevDist = Math.abs((prev.displayPosition || 0) - percentage);
+      const currDist = Math.abs((curr.displayPosition || 0) - percentage);
+      return currDist < prevDist ? curr : prev;
     }, visibleEvents[0]);
     
-    if (closest && Math.abs(closest.displayPosition - percentage) < 3) {
+    if (closest && Math.abs((closest.displayPosition || 0) - percentage) < 3) {
       setHoveredEvent(closest);
       setHoverPosition(percentage);
     } else {
@@ -206,9 +325,9 @@ export default function Timeline() {
     }
   };
 
-  const handleWheel = (e) => {
+  const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    if (!timelineRef.current) return;
+    if (!timelineRef.current || !timeRange || !fullTimelineRange) return;
     
     const rect = timelineRef.current.getBoundingClientRect();
     const cursorX = e.clientX - rect.left;
@@ -217,45 +336,72 @@ export default function Timeline() {
     const dataPositionUnderCursor = windowStart + (cursorPercent / 100) * windowWidth;
     
     const delta = e.deltaY * -0.1;
-    const newZoom = Math.max(1, Math.min(10000, zoom * Math.exp(delta * 0.1)));
+    
+    // Calculate minimum zoom (maximum zoom out) to show full timeline range
+    // Positions 0-100 represent the search results (timeRange.minTime to timeRange.maxTime)
+    // We need to calculate what positions the full timeline range occupies
+    const oldestTimestamp = fullTimelineRange.start.getTime();
+    const nowTimestamp = fullTimelineRange.end.getTime();
+    
+    // Calculate positions of oldest and now in the data coordinate system (0-100 = search results)
+    const oldestPosition = (oldestTimestamp - timeRange.minTime) / timeRange.duration * 100;
+    const nowPosition = (nowTimestamp - timeRange.minTime) / timeRange.duration * 100;
+    
+    // The window width needed to show from oldest to now
+    const fullWindowWidth = nowPosition - oldestPosition;
+    const minZoom = 100 / fullWindowWidth;
+    
+    console.log('🔍 Zoom calculation:');
+    console.log('  Search results range:', new Date(timeRange.minTime).toISOString(), 'to', new Date(timeRange.maxTime).toISOString());
+    console.log('  Full timeline range:', fullTimelineRange.start.toISOString(), 'to', fullTimelineRange.end.toISOString());
+    console.log('  oldestPosition:', oldestPosition);
+    console.log('  nowPosition:', nowPosition);
+    console.log('  fullWindowWidth needed:', fullWindowWidth);
+    console.log('  minZoom (to show full range):', minZoom);
+    console.log('  current zoom:', zoom);
+    
+    const newZoom = Math.max(minZoom, Math.min(10000, zoom * Math.exp(delta * 0.1)));
     const newWindowWidth = 100 / newZoom;
+    
+    console.log('  newZoom:', newZoom);
+    console.log('  newWindowWidth:', newWindowWidth);
     
     const newViewCenter = dataPositionUnderCursor + newWindowWidth * (0.5 - cursorPercent / 100);
     
     setZoom(newZoom);
-    setViewCenter(Math.max(newWindowWidth / 2, Math.min(100 - newWindowWidth / 2, newViewCenter)));
+    
+    // Allow panning to show the full timeline range
+    // Center can be positioned so that window covers oldest to now
+    const minCenter = oldestPosition + newWindowWidth / 2;
+    const maxCenter = nowPosition - newWindowWidth / 2;
+    setViewCenter(Math.max(minCenter, Math.min(maxCenter, newViewCenter)));
   };
 
-  const handleMouseDown = (e) => {
+  const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
     setDragStart(e.clientX);
   };
 
-  const handleMouseMove = (e) => {
-    if (!isDragging || !timelineRef.current) return;
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !timelineRef.current || !timeRange || !fullTimelineRange) return;
     const rect = timelineRef.current.getBoundingClientRect();
     const delta = (e.clientX - dragStart) / rect.width * windowWidth;
-    setViewCenter(prev => Math.max(windowWidth / 2, Math.min(100 - windowWidth / 2, prev - delta)));
+    
+    // Calculate pan limits based on full timeline range
+    const oldestTimestamp = fullTimelineRange.start.getTime();
+    const nowTimestamp = fullTimelineRange.end.getTime();
+    const oldestPosition = (oldestTimestamp - timeRange.minTime) / timeRange.duration * 100;
+    const nowPosition = (nowTimestamp - timeRange.minTime) / timeRange.duration * 100;
+    
+    const minCenter = oldestPosition + windowWidth / 2;
+    const maxCenter = nowPosition - windowWidth / 2;
+    setViewCenter(prev => Math.max(minCenter, Math.min(maxCenter, prev - delta)));
     setDragStart(e.clientX);
   };
 
   const handleMouseUp = () => {
     setIsDragging(false);
   };
-
-  // Close filters when clicking outside
-  React.useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (filtersRef.current && !filtersRef.current.contains(event.target)) {
-        setShowFilters(false);
-      }
-    };
-    
-    if (showFilters) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showFilters]);
 
   const timeLabels = getTimeLabels();
   const ticks = getTicks();
@@ -267,53 +413,34 @@ export default function Timeline() {
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
-      {/* Header with Filters */}
-      <div className="flex items-center justify-end mb-8">
-        <div className="relative" ref={filtersRef}>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="p-2 bg-zinc-900 hover:bg-zinc-800 rounded-md border border-zinc-800 transition-colors"
-          >
-            <SlidersHorizontal className="w-5 h-5 text-zinc-300" />
-          </button>
-          
-          {/* Filters Popover */}
-          {showFilters && (
-            <div className="absolute right-0 top-12 w-64 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl z-50 p-4">
-              <div className="mb-4">
-                <label className="text-sm font-medium text-zinc-300 block mb-2">
-                  Starting Window
-                </label>
-                <select
-                  value={startingWindow}
-                  onChange={(e) => {
-                    setStartingWindow(e.target.value);
-                    setZoom(getZoomForWindow(e.target.value));
-                  }}
-                  className="w-full bg-zinc-800 text-zinc-300 text-sm rounded-md px-3 py-2 border border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-600"
-                >
-                  <option value="hour">Hour</option>
-                  <option value="day">Day</option>
-                  <option value="week">Week</option>
-                  <option value="month">Month</option>
-                  <option value="year">Year</option>
-                </select>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* Timeline Container */}
       <div className="flex-1 flex items-center" onWheel={handleWheel}>
         <div className="w-full">
-          <div className="text-sm text-zinc-400 text-center mb-2">
-            Window: {getTimeframeLabel()} • {visibleEvents.length} events
-          </div>
-          <div className="text-xs text-zinc-600 text-center mb-8">
-            Scroll to zoom • Drag to pan
-          </div>
+          {allEvents.length === 0 ? (
+            <div className="text-center py-16">
+              <div className="text-zinc-500 text-lg mb-2">No snapshots to display</div>
+              <div className="text-zinc-600 text-sm">
+                {searchQuery ? `No results found for "${searchQuery}"` : 'Search for memories to populate the timeline'}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="text-sm text-zinc-400 text-center mb-1">
+                Window: {getTimeframeLabel()} • {visibleEvents.length} of {allEvents.length} snapshots
+                {searchQuery && <span className="text-zinc-500"> • Search: "{searchQuery}"</span>}
+              </div>
+              {timeRange && (
+                <div className="text-xs text-zinc-600 text-center mb-2">
+                  Data range: {new Date(timeRange.minTime).toLocaleString()} - {new Date(timeRange.maxTime).toLocaleString()}
+                </div>
+              )}
+              <div className="text-xs text-zinc-600 text-center mb-8">
+                Scroll to zoom • Drag to pan
+              </div>
+            </>
+          )}
           
+          {allEvents.length > 0 && (
           <div className="relative px-12">
             {/* Timeline Track with Interaction Area */}
             <div 
@@ -401,6 +528,7 @@ export default function Timeline() {
               ))}
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>
