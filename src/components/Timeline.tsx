@@ -180,45 +180,44 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
     return new Date(time);
   };
 
-  const getTimeLabels = () => {
-    const labels = [];
-    const numLabels = 5;
+  const getTimeLabels = (majorTicks: Array<{ position: number; time: number }>) => {
+    // If more than 8 major ticks, show labels on every other tick
+    const shouldSkip = majorTicks.length > 8;
+    const ticksToLabel = shouldSkip 
+      ? majorTicks.filter((_, index) => index % 2 === 0)
+      : majorTicks;
     
-    // When zoomed out beyond the data range, show the extended timeline
-    const startDate = positionToDate(windowStart);
-    const endDate = positionToDate(windowEnd);
-    
-    console.log('📅 Time labels for window:', {
-      windowStart,
-      windowEnd,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-    });
-    
-    for (let i = 0; i < numLabels; i++) {
-      const fraction = i / (numLabels - 1);
-      const time = startDate.getTime() + fraction * (endDate.getTime() - startDate.getTime());
-      const date = new Date(time);
+    return ticksToLabel.map(tick => {
+      const date = new Date(tick.time);
+      const startDate = positionToDate(windowStart);
+      const endDate = positionToDate(windowEnd);
+      const windowDuration = endDate.getTime() - startDate.getTime();
       
       let label;
-      if (zoom < 10) {
-        label = date.getFullYear().toString();
-      } else if (zoom < 52) {
-        label = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-      } else if (zoom < 365) {
-        label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      } else if (zoom < 8760) {
+      // Format based on window duration
+      if (windowDuration < 2 * 60 * 60 * 1000) { // < 2 hours
+        label = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      } else if (windowDuration < 12 * 60 * 60 * 1000) { // < 12 hours
+        label = date.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true });
+      } else if (windowDuration < 3 * 24 * 60 * 60 * 1000) { // < 3 days
         const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true });
-        label = `${dateStr} ${timeStr}`;
+        label = `${dateStr} • ${timeStr}`;
+      } else if (windowDuration < 14 * 24 * 60 * 60 * 1000) { // < 2 weeks
+        label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      } else if (windowDuration < 60 * 24 * 60 * 60 * 1000) { // < 2 months
+        label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      } else if (windowDuration < 365 * 24 * 60 * 60 * 1000) { // < 1 year
+        label = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
       } else {
-        label = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        label = date.getFullYear().toString();
       }
       
-      labels.push(label);
-    }
-    
-    return labels;
+      return {
+        label,
+        position: tick.position
+      };
+    });
   };
 
   const getTicks = () => {
@@ -226,6 +225,7 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
     const endDate = positionToDate(windowEnd);
     const windowDuration = endDate.getTime() - startDate.getTime();
     const ticks = [];
+    const majorTicks = [];
     
     // Determine tick interval based on window size
     let majorInterval, minorInterval;
@@ -253,7 +253,7 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
       minorInterval = 30 * 24 * 60 * 60 * 1000; // ~1 month
     }
     
-    if (!timeRange) return [];
+    if (!timeRange) return { ticks: [], majorTicks: [] };
 
     // Generate major ticks
     let time = Math.floor(startDate.getTime() / majorInterval) * majorInterval;
@@ -263,6 +263,7 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
       if (dataPosition >= windowStart && dataPosition <= windowEnd) {
         const displayPosition = ((dataPosition - windowStart) / windowWidth) * 100;
         ticks.push({ position: displayPosition, type: 'major' });
+        majorTicks.push({ position: displayPosition, time });
       }
       time += majorInterval;
     }
@@ -282,7 +283,7 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
       time += minorInterval;
     }
     
-    return ticks;
+    return { ticks, majorTicks };
   };
 
   const getTimeframeLabel = () => {
@@ -403,8 +404,8 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
     setIsDragging(false);
   };
 
-  const timeLabels = getTimeLabels();
-  const ticks = getTicks();
+  const { ticks, majorTicks } = getTicks();
+  const timeLabels = getTimeLabels(majorTicks);
 
   return (
     <div 
@@ -527,9 +528,15 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
             </div>
 
             {/* Dynamic Time Labels */}
-            <div className="flex justify-between text-xs text-zinc-600 px-2">
-              {timeLabels.map((label, index) => (
-                <span key={index} className="text-center">{label}</span>
+            <div className="relative text-xs text-zinc-600 h-4">
+              {timeLabels.map((item, index) => (
+                <span 
+                  key={index} 
+                  className="absolute -translate-x-1/2 whitespace-nowrap"
+                  style={{ left: `${item.position}%` }}
+                >
+                  {item.label}
+                </span>
               ))}
             </div>
           </div>
