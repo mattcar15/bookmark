@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import Timeline from '@/components/Timeline';
 import PromptBox from '@/components/PromptBox';
+import Priorities from '@/components/Priorities';
 import { BookOpen, SlidersHorizontal } from 'lucide-react';
 import memoryService from '@/services/memoryService';
 import type { Snapshot } from '@/types/memoir-api.types';
@@ -14,6 +15,7 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
   const [startingWindow, setStartingWindow] = useState('auto');
   const [fullTimelineRange, setFullTimelineRange] = useState<{ start: Date; end: Date } | null>(null);
+  const [activePriorityFilter, setActivePriorityFilter] = useState<{ id: string; title: string } | null>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
 
   // Load user info on mount to get the full timeline range
@@ -66,6 +68,48 @@ export default function Home() {
     setIsLoading(true);
   };
 
+  const handlePrioritySearch = async (priorityId: string) => {
+    console.log('🎯 Priority search triggered for:', priorityId);
+    setIsLoading(true);
+    
+    // Find the priority title for display
+    const priorities = [
+      { id: 'goal_health_fitness', title: 'Health & Fitness' },
+      { id: 'goal_career_growth', title: 'Career Development' },
+      { id: 'goal_creative_projects', title: 'Creative Projects' },
+      { id: 'goal_learning', title: 'Learning & Education' },
+    ];
+    const priority = priorities.find(p => p.id === priorityId);
+    
+    setActivePriorityFilter(priority ? { id: priorityId, title: priority.title } : null);
+    
+    try {
+      const response = await memoryService.searchByGoalId(priorityId, {
+        k: 30,
+        threshold: 0.5,
+        include_stats: true,
+        include_image: true,
+      });
+      
+      console.log('✅ Priority search response:', response);
+      setSnapshots(response.snapshots || []);
+      setSearchQuery(`Priority: ${priority?.title || priorityId}`);
+    } catch (error) {
+      console.error('❌ Priority search failed:', error);
+      setSnapshots([]);
+      setSearchQuery('');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRemovePriorityFilter = () => {
+    console.log('🗑️ Removing priority filter');
+    setActivePriorityFilter(null);
+    setSnapshots([]);
+    setSearchQuery('');
+  };
+
   // Close filters when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -91,7 +135,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <BookOpen className="w-6 h-6" />
             <h1 className="text-2xl font-semibold text-zinc-100 pb-1">
-              memoir
+              Memoir
             </h1>
           </div>
           
@@ -131,6 +175,9 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Priorities Section */}
+        <Priorities onPrioritySearch={handlePrioritySearch} />
+
         {/* Timeline Component */}
         <Timeline 
           snapshots={snapshots} 
@@ -143,7 +190,9 @@ export default function Home() {
         <PromptBox 
           onSearchResults={handleSearchResults} 
           onSearchStart={handleSearchStart}
-          isLoading={isLoading} 
+          isLoading={isLoading}
+          activePriorityFilter={activePriorityFilter}
+          onRemovePriorityFilter={handleRemovePriorityFilter}
         />
       </div>
     </div>

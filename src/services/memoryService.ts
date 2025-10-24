@@ -141,6 +141,28 @@ export const memoryService = {
   async getUserInfo(): Promise<UserInfoResponse> {
     return fetchApi<UserInfoResponse>('/me');
   },
+
+  /**
+   * Search snapshots by goal/priority ID (stubbed)
+   * This is a placeholder for future API implementation
+   */
+  async searchByGoalId(
+    goalId: string,
+    params?: Omit<SearchSnapshotsParams, 'query'>
+  ): Promise<SnapshotResponse> {
+    console.log('🎯 Searching by goal ID:', goalId);
+    console.log('📋 Additional params:', params);
+    
+    // TODO: Replace with actual API endpoint when available
+    // For now, we'll use the search endpoint with the goal ID as the query
+    return this.searchSnapshots({
+      query: `goal:${goalId}`,
+      k: params?.k || 30,
+      threshold: params?.threshold || 0.5,
+      include_stats: params?.include_stats,
+      include_image: params?.include_image,
+    });
+  },
 };
 
 export default memoryService;
