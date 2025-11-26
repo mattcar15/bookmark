@@ -7,9 +7,10 @@ import type { Priority } from '@/types/priority.types';
 interface PriorityCardProps {
   priority: Priority;
   onSearch: (priorityId: string) => void;
+  compact?: boolean;
 }
 
-export default function PriorityCard({ priority, onSearch }: PriorityCardProps) {
+export default function PriorityCard({ priority, onSearch, compact = true }: PriorityCardProps) {
   const [showPopover, setShowPopover] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -38,35 +39,110 @@ export default function PriorityCard({ priority, onSearch }: PriorityCardProps) 
   };
 
   const handleSearchClick = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click from triggering
+    e.stopPropagation();
     onSearch(priority.id);
   };
 
+  // Compact mode: smaller, title-only cards
+  if (compact) {
+    return (
+      <>
+        <div
+          ref={cardRef}
+          onClick={handleCardClick}
+          className="relative bg-muted/40 backdrop-blur-sm border border-border/50 rounded-lg px-4 py-3 cursor-pointer hover:border-border hover:bg-muted/60 transition-all flex-shrink-0"
+        >
+          <div className="flex items-center gap-3">
+            {/* Color indicator */}
+            <div 
+              className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{ backgroundColor: priority.color }}
+            />
+            
+            {/* Title */}
+            <h3 className="text-sm font-medium text-foreground whitespace-nowrap">
+              {priority.title.replace(' Goals', '').replace(' & ', ' / ')}
+            </h3>
+            
+            {/* Search button */}
+            <button
+              onClick={handleSearchClick}
+              className="flex-shrink-0 p-1.5 bg-accent/50 hover:bg-accent rounded-md transition-colors ml-auto"
+              aria-label="Search by this priority"
+            >
+              <Telescope className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+          </div>
+        </div>
+
+        {/* Popover */}
+        {showPopover && (
+          <div
+            ref={popoverRef}
+            className="fixed z-50 w-80 bg-card border border-border rounded-lg shadow-2xl p-5"
+            style={{
+              top: cardRef.current
+                ? `${cardRef.current.getBoundingClientRect().bottom + 8}px`
+                : '50%',
+              left: cardRef.current
+                ? `${cardRef.current.getBoundingClientRect().left}px`
+                : '50%',
+            }}
+          >
+            <div className="mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div 
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: priority.color }}
+                />
+                <h4 className="text-base font-semibold text-foreground">
+                  {priority.title}
+                </h4>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {priority.description}
+              </p>
+            </div>
+
+            <button
+              onClick={handleSearchClick}
+              className="w-full py-2 bg-accent hover:bg-accent/80 rounded-md text-sm text-foreground transition-colors flex items-center justify-center gap-2"
+            >
+              <Telescope className="w-4 h-4" />
+              View Memories
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // Full mode: larger cards with descriptions
   return (
     <>
       <div
         ref={cardRef}
         onClick={handleCardClick}
-        className="relative bg-zinc-800/40 backdrop-blur-sm border border-zinc-700/50 rounded-lg p-6 cursor-pointer hover:border-zinc-600 hover:bg-zinc-800/60 transition-all flex-shrink-0 w-80 h-44"
+        className="relative bg-muted/40 backdrop-blur-sm border border-border/50 rounded-lg p-6 cursor-pointer hover:border-border hover:bg-muted/60 transition-all flex-shrink-0 w-80 h-44"
       >
         <div className="flex flex-col h-full gap-3">
           {/* Header with title and button */}
           <div className="flex items-start justify-between gap-3">
-            <h3 className="text-lg font-medium text-zinc-100 flex-1">
+            <h3 className="text-lg font-medium text-foreground flex-1">
               {priority.title}
             </h3>
             <button
               onClick={handleSearchClick}
-              className="flex-shrink-0 p-2 bg-zinc-700/50 hover:bg-zinc-600 rounded-md transition-colors"
+              className="flex-shrink-0 p-2 bg-accent/50 hover:bg-accent rounded-md transition-colors"
               aria-label="Search by this priority"
             >
-              <Telescope className="w-4 h-4 text-zinc-300" />
+              <Telescope className="w-4 h-4 text-muted-foreground" />
             </button>
           </div>
           
           {/* Description */}
           <div className="flex-1">
-            <p className="text-sm text-zinc-400 line-clamp-4 leading-relaxed">
+            <p className="text-sm text-muted-foreground line-clamp-4 leading-relaxed">
               {priority.description}
             </p>
           </div>
@@ -77,7 +153,7 @@ export default function PriorityCard({ priority, onSearch }: PriorityCardProps) 
       {showPopover && (
         <div
           ref={popoverRef}
-          className="fixed z-50 w-96 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl p-6"
+          className="fixed z-50 w-96 bg-card border border-border rounded-lg shadow-2xl p-6"
           style={{
             top: cardRef.current
               ? `${cardRef.current.getBoundingClientRect().bottom + 8}px`
@@ -88,33 +164,33 @@ export default function PriorityCard({ priority, onSearch }: PriorityCardProps) 
           }}
         >
           <div className="mb-4">
-            <h4 className="text-lg font-semibold text-zinc-100 mb-2">
+            <h4 className="text-lg font-semibold text-foreground mb-2">
               {priority.title}
             </h4>
-            <p className="text-sm text-zinc-400 leading-relaxed">
+            <p className="text-sm text-muted-foreground leading-relaxed">
               {priority.description}
             </p>
           </div>
           
-          <div className="border-t border-zinc-800 pt-4 mt-4">
-            <h5 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">
+          <div className="border-t border-border pt-4 mt-4">
+            <h5 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
               Details
             </h5>
-            <div className="space-y-2 text-sm text-zinc-400">
+            <div className="space-y-2 text-sm text-muted-foreground">
               <div className="flex justify-between">
                 <span>Priority ID:</span>
-                <span className="text-zinc-300 font-mono text-xs">{priority.id}</span>
+                <span className="text-foreground font-mono text-xs">{priority.id}</span>
               </div>
               <div className="flex justify-between">
                 <span>Status:</span>
-                <span className="text-green-400">Active</span>
+                <span className="text-green-500">Active</span>
               </div>
             </div>
           </div>
 
           <button
             onClick={handleSearchClick}
-            className="w-full mt-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-md text-sm text-zinc-100 transition-colors flex items-center justify-center gap-2"
+            className="w-full mt-4 py-2 bg-accent hover:bg-accent/80 rounded-md text-sm text-foreground transition-colors flex items-center justify-center gap-2"
           >
             <Telescope className="w-4 h-4" />
             Search Memories for This Priority
@@ -124,4 +200,3 @@ export default function PriorityCard({ priority, onSearch }: PriorityCardProps) 
     </>
   );
 }
-

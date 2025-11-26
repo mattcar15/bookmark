@@ -424,23 +424,23 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
         <div className="w-full">
           {allEvents.length === 0 ? (
             <div className="text-center py-16">
-              <div className="text-zinc-500 text-lg mb-2">No snapshots to display</div>
-              <div className="text-zinc-600 text-sm">
+              <div className="text-muted-foreground text-lg mb-2">No snapshots to display</div>
+              <div className="text-muted-foreground/60 text-sm">
                 {searchQuery ? `No results found for "${searchQuery}"` : 'Search for memories to populate the timeline'}
               </div>
             </div>
           ) : (
             <>
-              <div className="text-sm text-zinc-400 text-center mb-1">
+              <div className="text-sm text-muted-foreground text-center mb-1">
                 Window: {getTimeframeLabel()} • {visibleEvents.length} of {allEvents.length} snapshots
-                {searchQuery && <span className="text-zinc-500"> • Search: "{searchQuery}"</span>}
+                {searchQuery && <span className="text-muted-foreground/70"> • Search: "{searchQuery}"</span>}
               </div>
               {timeRange && (
-                <div className="text-xs text-zinc-600 text-center mb-2">
+                <div className="text-xs text-muted-foreground/60 text-center mb-2">
                   Data range: {new Date(timeRange.minTime).toLocaleString()} - {new Date(timeRange.maxTime).toLocaleString()}
                 </div>
               )}
-              <div className="text-xs text-zinc-600 text-center mb-8">
+              <div className="text-xs text-muted-foreground/60 text-center mb-8">
                 Scroll to zoom • Drag to pan
               </div>
             </>
@@ -456,7 +456,7 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
               onMouseDown={handleMouseDown}
               className={`relative ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} py-16`}
             >
-              <div className="relative h-1 bg-zinc-800 rounded-full">
+              <div className="relative h-1 bg-border rounded-full">
                 {/* Tick Marks */}
                 {ticks.map((tick, i) => (
                   <div
@@ -465,7 +465,7 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
                     className="absolute top-full translate-y-1 -translate-x-px"
                   >
                     <div 
-                      className={`w-px ${tick.type === 'major' ? 'h-3 bg-zinc-600' : 'h-1.5 bg-zinc-700'}`}
+                      className={`w-px ${tick.type === 'major' ? 'h-3 bg-muted-foreground/40' : 'h-1.5 bg-border'}`}
                     ></div>
                   </div>
                 ))}
@@ -506,11 +506,11 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
                       className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2"
                     >
                       <div 
-                        className="rounded-full hover:bg-zinc-400 transition-colors"
+                        className="rounded-full hover:opacity-80 transition-opacity bg-primary"
                         style={{
                           width: `${size}px`,
                           height: `${size}px`,
-                          backgroundColor: `rgb(${100 + event.prominence * 15}, ${100 + event.prominence * 10}, ${100 + event.prominence * 10})`
+                          opacity: 0.5 + (event.prominence / 20),
                         }}
                       ></div>
                     </div>
@@ -521,19 +521,19 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
                 {hoveredEvent && !isDragging && (
                   <div
                     style={{ left: `${hoverPosition}%` }}
-                    className="absolute bottom-full mb-4 -translate-x-1/2 w-64 bg-zinc-800 border border-zinc-700 rounded-lg p-4 shadow-xl z-10 pointer-events-none"
+                    className="absolute bottom-full mb-4 -translate-x-1/2 w-64 bg-card border border-border rounded-lg p-4 shadow-xl z-10 pointer-events-none"
                   >
-                    <div className="text-xs text-zinc-500 mb-1">{hoveredEvent.date}</div>
-                    <div className="text-sm font-medium text-zinc-100 mb-1">{hoveredEvent.title}</div>
-                    <div className="text-xs text-zinc-400">{hoveredEvent.description}</div>
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-zinc-800 border-r border-b border-zinc-700 rotate-45 -mt-1"></div>
+                    <div className="text-xs text-muted-foreground mb-1">{hoveredEvent.date}</div>
+                    <div className="text-sm font-medium text-foreground mb-1">{hoveredEvent.title}</div>
+                    <div className="text-xs text-muted-foreground">{hoveredEvent.description}</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-card border-r border-b border-border rotate-45 -mt-1"></div>
                   </div>
                 )}
               </div>
             </div>
 
             {/* Dynamic Time Labels */}
-            <div className="relative text-xs text-zinc-600 h-4">
+            <div className="relative text-xs text-muted-foreground/60 h-4">
               {timeLabels.map((item, index) => (
                 <span 
                   key={index} 

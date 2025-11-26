@@ -6,13 +6,14 @@ import type { Priority } from '@/types/priority.types';
 
 interface PrioritiesProps {
   onPrioritySearch: (priorityId: string) => void;
+  compact?: boolean;
 }
 
 // Placeholder priority data
 const PLACEHOLDER_PRIORITIES: Priority[] = [
   {
     id: 'goal_health_fitness',
-    title: 'Health & Fitness Goals',
+    title: 'Health & Fitness',
     description: 'Track workouts, meal plans, and progress towards fitness targets. Focus on building sustainable habits for long-term wellness.',
     color: '#10b981', // green
   },
@@ -36,10 +37,10 @@ const PLACEHOLDER_PRIORITIES: Priority[] = [
   },
 ];
 
-export default function Priorities({ onPrioritySearch }: PrioritiesProps) {
+export default function Priorities({ onPrioritySearch, compact = true }: PrioritiesProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showLeftFade, setShowLeftFade] = useState(false);
-  const [showRightFade, setShowRightFade] = useState(true);
+  const [showRightFade, setShowRightFade] = useState(false);
 
   const handleScroll = () => {
     if (!scrollContainerRef.current) return;
@@ -74,22 +75,15 @@ export default function Priorities({ onPrioritySearch }: PrioritiesProps) {
 
   return (
     <div className="w-full">
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-zinc-100 mb-1">Priorities</h2>
-        <p className="text-sm text-zinc-500">
-          Your active goals and focus areas
-        </p>
-      </div>
-
       <div className="relative">
         {/* Left fade - only show if scrolled */}
         {showLeftFade && (
-          <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-[#0a0807]/80 to-transparent z-10 pointer-events-none" />
+          <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background/80 to-transparent z-10 pointer-events-none" />
         )}
         
         {/* Right fade - only show if more content */}
         {showRightFade && (
-          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-[#0a0807]/80 to-transparent z-10 pointer-events-none" />
+          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background/80 to-transparent z-10 pointer-events-none" />
         )}
         
         {/* Scrollable container */}
@@ -97,12 +91,13 @@ export default function Priorities({ onPrioritySearch }: PrioritiesProps) {
           ref={scrollContainerRef}
           className="overflow-x-auto scrollbar-hide"
         >
-          <div className="flex gap-4 pb-2">
+          <div className={`flex gap-3 ${compact ? '' : 'pb-2'}`}>
             {PLACEHOLDER_PRIORITIES.map((priority) => (
               <PriorityCard
                 key={priority.id}
                 priority={priority}
                 onSearch={onPrioritySearch}
+                compact={compact}
               />
             ))}
           </div>
@@ -111,4 +106,3 @@ export default function Priorities({ onPrioritySearch }: PrioritiesProps) {
     </div>
   );
 }
-
