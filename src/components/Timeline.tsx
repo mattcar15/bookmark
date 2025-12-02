@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import type { Snapshot } from '@/types/memoir-api.types';
 
 interface TimelineEvent {
@@ -9,6 +9,7 @@ interface TimelineEvent {
   title: string;
   description: string;
   prominence: number;
+  similarity: number; // Raw similarity score (0-1)
   displayPosition?: number;
   snapshot?: Snapshot;
 }
@@ -19,6 +20,45 @@ interface TimelineProps {
   startingWindow: string;
   fullTimelineRange: { start: Date; end: Date } | null;
 }
+
+// =============================================================================
+// TUNING PARAMETERS - Adjust these to control circle appearance
+// =============================================================================
+const TUNING = {
+  // Base size parameters (based on zoom level)
+  BASE_SIZE: {
+    MIN: 4,           // Minimum base size at max zoom out (pixels)
+    MAX: 14,          // Maximum base size at max zoom in (pixels)
+  },
+  
+  // Similarity boost parameters (added on top of base size)
+  SIMILARITY_BOOST: {
+    MAX_BOOST: 12,     // Maximum additional size from similarity (pixels)
+    EXPONENT: 1.5,     // Exponent for similarity curve (>1 = emphasize high scores)
+  },
+  
+  // Opacity parameters
+  OPACITY: {
+    MIN: 0.25,         // Minimum opacity for lowest similarity in view
+    MAX: 1.0,          // Maximum opacity for highest similarity in view
+    EXPONENT: 1.2,     // Exponent for opacity curve (>1 = emphasize high scores)
+  },
+  
+  // Overlap handling parameters
+  OVERLAP: {
+    // Score difference threshold: if the worse circle's score is within this
+    // percentage of the better circle's score, show both
+    SCORE_PROXIMITY_THRESHOLD: 0.15, // 15% - if scores are within 15%, show both
+    
+    // Minimum pixel distance between circle centers to not be considered overlapping
+    // This is calculated as a fraction of the combined radii
+    OVERLAP_RATIO: 0.7, // Circles overlap if distance < 70% of combined radii
+    
+    // Zoom threshold: at this zoom level or higher, always show all circles
+    // Higher number = more zoomed in (e.g., 50 = showing ~2% of total range)
+    ALWAYS_SHOW_ZOOM_THRESHOLD: 20,
+  },
+};
 
 export default function Timeline({ snapshots, searchQuery, startingWindow, fullTimelineRange }: TimelineProps) {
   const [hoveredEvent, setHoveredEvent] = useState<TimelineEvent | null>(null);
@@ -88,10 +128,11 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
         const timestamp = new Date(snapshot.timestamp!).getTime();
         const position = ((timestamp - timeRange.minTime) / timeRange.duration) * 100;
         
+        // Store raw similarity score (0-1), default to 0.5 if not available
+        const similarity = snapshot.similarity ?? 0.5;
+        
         // Use similarity score as prominence (0-1 -> 1-10)
-        const prominence = snapshot.similarity 
-          ? Math.max(1, Math.min(10, snapshot.similarity * 10))
-          : 5;
+        const prominence = Math.max(1, Math.min(10, similarity * 10));
 
         // Extract title from summary (first line or first 50 chars)
         const summary = snapshot.summary || 'Snapshot';
@@ -108,6 +149,7 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
           title,
           description: description || 'No additional details',
           prominence,
+          similarity,
           snapshot,
         };
       });
@@ -158,14 +200,123 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
     }
   }, [zoom, windowWidth, windowStart, windowEnd, timeRange]);
 
-  const visibleEvents = allEvents
-    .filter(e => e.position >= windowStart && e.position <= windowEnd)
-    .sort((a, b) => b.prominence - a.prominence)
-    .slice(0, 30)
-    .map(e => ({
-      ...e,
-      displayPosition: ((e.position - windowStart) / windowWidth) * 100
-    }));
+  // Calculate base size based on current zoom level
+  const baseSize = useMemo(() => {
+    if (!timeRange) return TUNING.BASE_SIZE.MAX;
+    
+    // Calculate window duration
+    const windowDurationMs = (timeRange.duration * windowWidth) / 100;
+    const windowHours = windowDurationMs / (60 * 60 * 1000);
+    
+    const MIN_WINDOW_HOURS = 1;
+    const absoluteOldest = new Date('2025-01-01T00:00:00Z').getTime();
+    const now = new Date().getTime();
+    const maxWindowMs = now - absoluteOldest;
+    const MAX_WINDOW_HOURS = maxWindowMs / (60 * 60 * 1000);
+    
+    const clampedWindowHours = Math.max(MIN_WINDOW_HOURS, Math.min(MAX_WINDOW_HOURS, windowHours));
+    const ratio = (clampedWindowHours - MIN_WINDOW_HOURS) / (MAX_WINDOW_HOURS - MIN_WINDOW_HOURS);
+    
+    return TUNING.BASE_SIZE.MAX - ratio * (TUNING.BASE_SIZE.MAX - TUNING.BASE_SIZE.MIN);
+  }, [timeRange, windowWidth]);
+
+  // Process visible events with similarity-based sizing and overlap handling
+  const visibleEvents = useMemo(() => {
+    // Step 1: Filter to events in the visible window
+    const inWindow = allEvents
+      .filter(e => e.position >= windowStart && e.position <= windowEnd)
+      .map(e => ({
+        ...e,
+        displayPosition: ((e.position - windowStart) / windowWidth) * 100
+      }));
+    
+    if (inWindow.length === 0) return [];
+    
+    // Step 2: Calculate normalized similarity scores relative to visible events
+    const similarities = inWindow.map(e => e.similarity);
+    const minSimilarity = Math.min(...similarities);
+    const maxSimilarity = Math.max(...similarities);
+    const similarityRange = maxSimilarity - minSimilarity || 1; // Avoid division by zero
+    
+    // Step 3: Calculate size and opacity for each event
+    const eventsWithMetrics = inWindow.map(e => {
+      // Normalize similarity to 0-1 range within visible events
+      const normalizedSimilarity = (e.similarity - minSimilarity) / similarityRange;
+      
+      // Apply exponent for non-linear scaling (emphasize higher scores)
+      const sizeBoostFactor = Math.pow(normalizedSimilarity, TUNING.SIMILARITY_BOOST.EXPONENT);
+      const opacityFactor = Math.pow(normalizedSimilarity, TUNING.OPACITY.EXPONENT);
+      
+      // Calculate final size: base + similarity boost
+      const size = baseSize + (sizeBoostFactor * TUNING.SIMILARITY_BOOST.MAX_BOOST);
+      
+      // Calculate final opacity
+      const opacity = TUNING.OPACITY.MIN + (opacityFactor * (TUNING.OPACITY.MAX - TUNING.OPACITY.MIN));
+      
+      return {
+        ...e,
+        normalizedSimilarity,
+        calculatedSize: size,
+        calculatedOpacity: opacity,
+      };
+    });
+    
+    // Step 4: Sort by similarity (best first) for overlap processing
+    eventsWithMetrics.sort((a, b) => b.similarity - a.similarity);
+    
+    // Step 5: Handle overlapping circles
+    // At high zoom levels, skip overlap filtering
+    const shouldFilterOverlaps = zoom < TUNING.OVERLAP.ALWAYS_SHOW_ZOOM_THRESHOLD;
+    
+    if (!shouldFilterOverlaps) {
+      // Return all events, just limit to reasonable number
+      return eventsWithMetrics.slice(0, 50);
+    }
+    
+    // Filter overlapping events
+    const visibleAfterOverlapFilter: typeof eventsWithMetrics = [];
+    
+    for (const event of eventsWithMetrics) {
+      // Check if this event overlaps with any already-visible event
+      let shouldShow = true;
+      
+      for (const visibleEvent of visibleAfterOverlapFilter) {
+        // Calculate pixel distance between circle centers
+        // displayPosition is 0-100% of the visible width
+        const positionDiff = Math.abs(event.displayPosition! - visibleEvent.displayPosition!);
+        
+        // Convert percentage to approximate pixels (assuming ~1000px width)
+        // This is a rough estimate - actual overlap depends on container width
+        const pixelDistance = (positionDiff / 100) * 1000;
+        
+        // Combined radii
+        const combinedRadii = (event.calculatedSize + visibleEvent.calculatedSize) / 2;
+        
+        // Check if circles overlap
+        const isOverlapping = pixelDistance < combinedRadii * TUNING.OVERLAP.OVERLAP_RATIO;
+        
+        if (isOverlapping) {
+          // Calculate score proximity
+          const scoreDiff = Math.abs(event.similarity - visibleEvent.similarity);
+          const avgScore = (event.similarity + visibleEvent.similarity) / 2;
+          const scoreProximity = avgScore > 0 ? scoreDiff / avgScore : 0;
+          
+          // If scores are close enough, show both; otherwise hide the worse one
+          if (scoreProximity > TUNING.OVERLAP.SCORE_PROXIMITY_THRESHOLD) {
+            shouldShow = false;
+            break;
+          }
+        }
+      }
+      
+      if (shouldShow) {
+        visibleAfterOverlapFilter.push(event);
+      }
+    }
+    
+    // Limit to reasonable number of events
+    return visibleAfterOverlapFilter.slice(0, 50);
+  }, [allEvents, windowStart, windowEnd, windowWidth, baseSize, zoom]);
 
   const positionToDate = (position: number) => {
     if (!timeRange) {
@@ -327,9 +478,35 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
     }
   };
 
+  // Calculate effective bounds for zoom/pan that encompass both search results AND full timeline range
+  // This ensures search results are never cut off, and user can zoom out to see historical context
+  const getEffectiveBounds = React.useCallback(() => {
+    if (!timeRange) return { minPosition: 0, maxPosition: 100 };
+    
+    // Absolute oldest date floor: Jan 1, 2025
+    const absoluteOldestDate = new Date('2025-01-01T00:00:00Z');
+    const now = new Date();
+    
+    // Get the effective oldest and newest times
+    // Must include: search results (timeRange), fullTimelineRange, and absolute bounds
+    let effectiveOldestTime = Math.min(timeRange.minTime, absoluteOldestDate.getTime());
+    let effectiveNewestTime = Math.max(timeRange.maxTime, now.getTime());
+    
+    if (fullTimelineRange) {
+      effectiveOldestTime = Math.min(effectiveOldestTime, fullTimelineRange.start.getTime());
+      effectiveNewestTime = Math.max(effectiveNewestTime, fullTimelineRange.end.getTime());
+    }
+    
+    // Calculate positions in data coordinate system (0-100 = search results)
+    const minPosition = ((effectiveOldestTime - timeRange.minTime) / timeRange.duration) * 100;
+    const maxPosition = ((effectiveNewestTime - timeRange.minTime) / timeRange.duration) * 100;
+    
+    return { minPosition, maxPosition };
+  }, [timeRange, fullTimelineRange]);
+
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    if (!timelineRef.current || !timeRange || !fullTimelineRange) return;
+    if (!timelineRef.current || !timeRange) return;
     
     const rect = timelineRef.current.getBoundingClientRect();
     const cursorX = e.clientX - rect.left;
@@ -339,25 +516,16 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
     
     const delta = e.deltaY * -0.1;
     
-    // Calculate minimum zoom (maximum zoom out) to show full timeline range
-    // Positions 0-100 represent the search results (timeRange.minTime to timeRange.maxTime)
-    // We need to calculate what positions the full timeline range occupies
-    const oldestTimestamp = fullTimelineRange.start.getTime();
-    const nowTimestamp = fullTimelineRange.end.getTime();
+    // Get effective bounds that encompass search results AND full timeline range
+    const { minPosition, maxPosition } = getEffectiveBounds();
     
-    // Calculate positions of oldest and now in the data coordinate system (0-100 = search results)
-    const oldestPosition = (oldestTimestamp - timeRange.minTime) / timeRange.duration * 100;
-    const nowPosition = (nowTimestamp - timeRange.minTime) / timeRange.duration * 100;
-    
-    // The window width needed to show from oldest to now
-    const fullWindowWidth = nowPosition - oldestPosition;
+    // Calculate minimum zoom (maximum zoom out) to show the full effective range
+    const fullWindowWidth = maxPosition - minPosition;
     const minZoom = 100 / fullWindowWidth;
     
     console.log('🔍 Zoom calculation:');
     console.log('  Search results range:', new Date(timeRange.minTime).toISOString(), 'to', new Date(timeRange.maxTime).toISOString());
-    console.log('  Full timeline range:', fullTimelineRange.start.toISOString(), 'to', fullTimelineRange.end.toISOString());
-    console.log('  oldestPosition:', oldestPosition);
-    console.log('  nowPosition:', nowPosition);
+    console.log('  Effective bounds - minPosition:', minPosition, 'maxPosition:', maxPosition);
     console.log('  fullWindowWidth needed:', fullWindowWidth);
     console.log('  minZoom (to show full range):', minZoom);
     console.log('  current zoom:', zoom);
@@ -376,11 +544,17 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
     
     setZoom(newZoom);
     
-    // Allow panning to show the full timeline range
-    // Center can be positioned so that window covers oldest to now
-    const minCenter = oldestPosition + newWindowWidth / 2;
-    const maxCenter = nowPosition - newWindowWidth / 2;
-    setViewCenter(Math.max(minCenter, Math.min(maxCenter, newViewCenter)));
+    // Allow panning to show the full effective range
+    const minCenter = minPosition + newWindowWidth / 2;
+    const maxCenter = maxPosition - newWindowWidth / 2;
+    
+    // Only clamp if the window is smaller than the effective range
+    if (minCenter < maxCenter) {
+      setViewCenter(Math.max(minCenter, Math.min(maxCenter, newViewCenter)));
+    } else {
+      // Window is larger than effective range, center on the middle of the range
+      setViewCenter((minPosition + maxPosition) / 2);
+    }
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -389,19 +563,23 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !timelineRef.current || !timeRange || !fullTimelineRange) return;
+    if (!isDragging || !timelineRef.current || !timeRange) return;
     const rect = timelineRef.current.getBoundingClientRect();
     const delta = (e.clientX - dragStart) / rect.width * windowWidth;
     
-    // Calculate pan limits based on full timeline range
-    const oldestTimestamp = fullTimelineRange.start.getTime();
-    const nowTimestamp = fullTimelineRange.end.getTime();
-    const oldestPosition = (oldestTimestamp - timeRange.minTime) / timeRange.duration * 100;
-    const nowPosition = (nowTimestamp - timeRange.minTime) / timeRange.duration * 100;
+    // Get effective bounds that encompass search results AND full timeline range
+    const { minPosition, maxPosition } = getEffectiveBounds();
     
-    const minCenter = oldestPosition + windowWidth / 2;
-    const maxCenter = nowPosition - windowWidth / 2;
-    setViewCenter(prev => Math.max(minCenter, Math.min(maxCenter, prev - delta)));
+    const minCenter = minPosition + windowWidth / 2;
+    const maxCenter = maxPosition - windowWidth / 2;
+    
+    // Only clamp if the window is smaller than the effective range
+    if (minCenter < maxCenter) {
+      setViewCenter(prev => Math.max(minCenter, Math.min(maxCenter, prev - delta)));
+    } else {
+      // Window is larger than effective range, center on the middle
+      setViewCenter((minPosition + maxPosition) / 2);
+    }
     setDragStart(e.clientX);
   };
 
@@ -471,51 +649,22 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
                 ))}
                 
                 {/* Event Markers */}
-                {visibleEvents.map((event, index) => {
-                  // Calculate actual window duration in milliseconds
-                  const startDate = positionToDate(windowStart);
-                  const endDate = positionToDate(windowEnd);
-                  const windowDurationMs = endDate.getTime() - startDate.getTime();
-                  
-                  // Convert to hours for easier calculation
-                  const windowHours = windowDurationMs / (60 * 60 * 1000);
-                  
-                  // Define min/max window sizes and circle sizes
-                  const MIN_WINDOW_HOURS = 1; // 1 hour - most zoomed in
-                  // Max window is the full timeline range from first snapshot to now
-                  const maxWindowMs = fullTimelineRange 
-                    ? fullTimelineRange.end.getTime() - fullTimelineRange.start.getTime()
-                    : 365 * 24 * 60 * 60 * 1000; // fallback to 1 year
-                  const MAX_WINDOW_HOURS = maxWindowMs / (60 * 60 * 1000);
-                  const MIN_CIRCLE_SIZE = 6; // pixels - at max zoom out
-                  const MAX_CIRCLE_SIZE = 20; // pixels - at 1 hour zoom
-                  
-                  // Clamp window hours to our range
-                  const clampedWindowHours = Math.max(MIN_WINDOW_HOURS, Math.min(MAX_WINDOW_HOURS, windowHours));
-                  
-                  // Linear interpolation: smaller window (more zoom) = larger circles
-                  // At 1 hour window: max circle size
-                  // At max window: min circle size
-                  const ratio = (clampedWindowHours - MIN_WINDOW_HOURS) / (MAX_WINDOW_HOURS - MIN_WINDOW_HOURS);
-                  const size = MAX_CIRCLE_SIZE - ratio * (MAX_CIRCLE_SIZE - MIN_CIRCLE_SIZE);
-                  
-                  return (
-                    <div
-                      key={index}
-                      style={{ left: `${event.displayPosition}%` }}
-                      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2"
-                    >
-                      <div 
-                        className="rounded-full hover:opacity-80 transition-opacity bg-primary"
-                        style={{
-                          width: `${size}px`,
-                          height: `${size}px`,
-                          opacity: 0.5 + (event.prominence / 20),
-                        }}
-                      ></div>
-                    </div>
-                  );
-                })}
+                {visibleEvents.map((event, index) => (
+                  <div
+                    key={index}
+                    style={{ left: `${event.displayPosition}%` }}
+                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2"
+                  >
+                    <div 
+                      className="rounded-full hover:brightness-125 transition-all bg-primary"
+                      style={{
+                        width: `${event.calculatedSize}px`,
+                        height: `${event.calculatedSize}px`,
+                        opacity: event.calculatedOpacity,
+                      }}
+                    ></div>
+                  </div>
+                ))}
 
                 {/* Hover Tooltip */}
                 {hoveredEvent && !isDragging && (
@@ -523,7 +672,12 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
                     style={{ left: `${hoverPosition}%` }}
                     className="absolute bottom-full mb-4 -translate-x-1/2 w-64 bg-card border border-border rounded-lg p-4 shadow-xl z-10 pointer-events-none"
                   >
-                    <div className="text-xs text-muted-foreground mb-1">{hoveredEvent.date}</div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                      <span>{hoveredEvent.date}</span>
+                      <span className="text-primary font-mono">
+                        {(hoveredEvent.similarity * 100).toFixed(1)}%
+                      </span>
+                    </div>
                     <div className="text-sm font-medium text-foreground mb-1">{hoveredEvent.title}</div>
                     <div className="text-xs text-muted-foreground">{hoveredEvent.description}</div>
                     <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-card border-r border-b border-border rotate-45 -mt-1"></div>

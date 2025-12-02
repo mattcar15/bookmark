@@ -7,12 +7,20 @@ import API_CONFIG from '@/config/api.config';
 import type {
   GetSnapshotsByRangeParams,
   SearchSnapshotsParams,
+  UnifiedSearchParams,
+  SearchResponse,
+  SearchResultItem,
   GetImageParams,
   SnapshotResponse,
+  Snapshot,
   RootResponse,
   HealthResponse,
   UserInfoResponse,
   HTTPValidationError,
+  SnapshotDetail,
+  EpisodeWithSnapshots,
+  SimilarResponse,
+  DetailViewData,
 } from '@/types/memoir-api.types';
 
 /**
@@ -98,12 +106,65 @@ export const memoryService = {
   },
 
   /**
-   * Search snapshots using semantic similarity with optional time filtering
+   * Unified hybrid search across snapshots, episodes, and memories.
+   * Uses the new /search endpoint with vector similarity and BM25 scoring.
+   */
+  async search(params: UnifiedSearchParams): Promise<SearchResponse> {
+    return fetchApi<SearchResponse>('/search', params);
+  },
+
+  /**
+   * Search snapshots using the unified search endpoint.
+   * This is a compatibility wrapper that converts the old params format
+   * to the new unified search and transforms results back to SnapshotResponse.
    */
   async searchSnapshots(
     params: SearchSnapshotsParams
   ): Promise<SnapshotResponse> {
-    return fetchApi<SnapshotResponse>('/snapshots/search', params);
+    // Convert old params to new unified search format
+    const searchParams: UnifiedSearchParams = {
+      q: params.query,
+      k: params.k,
+      types: 'snapshot', // Only search snapshots for backwards compatibility
+    };
+
+    // Convert date strings to unix timestamps if provided
+    if (params.start_date) {
+      searchParams.start = new Date(params.start_date).getTime();
+    }
+    if (params.end_date) {
+      searchParams.end = new Date(params.end_date).getTime();
+    }
+
+    const response = await this.search(searchParams);
+    
+    // Transform search results to snapshots format
+    const snapshots: Snapshot[] = response.results.map((result: SearchResultItem) => ({
+      memory_id: result.memory_id,
+      snapshot_id: result.snapshot_id,
+      episode_id: result.episode_id,
+      timestamp: result.timestamp,
+      captured_at: result.captured_at,
+      title: result.title,
+      summary: result.summary,
+      bullets: result.bullets,
+      tags: result.tags,
+      entities: result.entities,
+      image_url: result.image_path, // API returns image_path
+      window_title: result.window_title,
+      url: result.url,
+      similarity: result.similarity,
+      vector_score: result.vector_score,
+      bm25_score: result.bm25_score,
+      app: result.app,
+    }));
+
+    return {
+      snapshots,
+      stats: {
+        total_snapshots: response.total,
+      },
+    };
   },
 
   /**
@@ -143,8 +204,8 @@ export const memoryService = {
   },
 
   /**
-   * Search snapshots by goal/priority ID (stubbed)
-   * This is a placeholder for future API implementation
+   * Search snapshots by goal/priority ID
+   * Uses the unified search endpoint with the goal ID as the query
    */
   async searchByGoalId(
     goalId: string,
@@ -153,15 +214,94 @@ export const memoryService = {
     console.log('🎯 Searching by goal ID:', goalId);
     console.log('📋 Additional params:', params);
     
-    // TODO: Replace with actual API endpoint when available
-    // For now, we'll use the search endpoint with the goal ID as the query
     return this.searchSnapshots({
       query: `goal:${goalId}`,
       k: params?.k || 30,
-      threshold: params?.threshold || 0.5,
+      threshold: params?.threshold || 0.3,
       include_stats: params?.include_stats,
       include_image: params?.include_image,
     });
+  },
+
+  /**
+   * Get full snapshot details by ID
+   */
+  async getSnapshot(
+    snapshotId: string,
+    options?: { include_image?: boolean; include_stats?: boolean }
+  ): Promise<SnapshotDetail> {
+    const params: Record<string, any> = {};
+    if (options?.include_image) params.include_image = true;
+    if (options?.include_stats) params.include_stats = true;
+    
+    return fetchApi<SnapshotDetail>(`/snapshots/${snapshotId}`, params);
+  },
+
+  /**
+   * Get episode with its snapshots
+   */
+  async getEpisode(episodeId: string): Promise<EpisodeWithSnapshots> {
+    return fetchApi<EpisodeWithSnapshots>(`/episodes/${episodeId}`);
+  },
+
+  /**
+   * Get similar items based on snapshot, memory, or episode ID
+   */
+  async getSimilar(
+    type: 'snapshot' | 'memory' | 'episode',
+    id: string,
+    k: number = 10
+  ): Promise<SimilarResponse> {
+    const paramKey = `${type}_id`;
+    return fetchApi<SimilarResponse>('/search/similar', { [paramKey]: id, k });
+  },
+
+  /**
+   * Load all detail view data in parallel for a search result
+   * This implements the proposed loadSearchResultDetail pattern
+   */
+  async loadDetailViewData(result: SearchResultItem): Promise<DetailViewData> {
+    // 1. Image URL (sync - no fetch needed)
+    const imageUrl = result.image_path
+      ? this.getImageUrl({ filename: result.image_path.split('/').pop() || '' })
+      : null;
+
+    // 2. Full snapshot (if needed beyond search result data)
+    const snapshotPromise = result.snapshot_id
+      ? this.getSnapshot(result.snapshot_id, { include_image: true, include_stats: true })
+          .catch((err) => {
+            console.warn('Failed to fetch snapshot details:', err);
+            return null;
+          })
+      : Promise.resolve(null);
+
+    // 3. Episode context (timeline)
+    const episodePromise = result.episode_id
+      ? this.getEpisode(result.episode_id)
+          .catch((err) => {
+            console.warn('Failed to fetch episode:', err);
+            return null;
+          })
+      : Promise.resolve(null);
+
+    // 4. Similar items (semantic neighbors)
+    const similarPromise = result.snapshot_id
+      ? this.getSimilar('snapshot', result.snapshot_id, 10)
+          .then((d) => d.similar)
+          .catch((err) => {
+            console.warn('Failed to fetch similar items:', err);
+            return [];
+          })
+      : Promise.resolve([]);
+
+    // Execute all in parallel
+    const [snapshot, episode, similar] = await Promise.all([
+      snapshotPromise,
+      episodePromise,
+      similarPromise,
+    ]);
+
+    return { imageUrl, snapshot, episode, similar };
   },
 };
 

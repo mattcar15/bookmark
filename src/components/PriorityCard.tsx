@@ -63,15 +63,6 @@ export default function PriorityCard({ priority, onSearch, compact = true }: Pri
             <h3 className="text-sm font-medium text-foreground whitespace-nowrap">
               {priority.title.replace(' Goals', '').replace(' & ', ' / ')}
             </h3>
-            
-            {/* Search button */}
-            <button
-              onClick={handleSearchClick}
-              className="flex-shrink-0 p-1.5 bg-accent/50 hover:bg-accent rounded-md transition-colors ml-auto"
-              aria-label="Search by this priority"
-            >
-              <Telescope className="w-3.5 h-3.5 text-muted-foreground" />
-            </button>
           </div>
         </div>
 

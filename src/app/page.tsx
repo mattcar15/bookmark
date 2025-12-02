@@ -6,11 +6,12 @@ import PromptBox from '@/components/PromptBox';
 import Priorities from '@/components/Priorities';
 import ViewToggle, { ViewMode } from '@/components/ViewToggle';
 import MemoryList from '@/components/MemoryList';
-import { BreadcrumbItem } from '@/components/BreadcrumbNav';
+import BreadcrumbNav, { BreadcrumbItem } from '@/components/BreadcrumbNav';
+import DetailView from '@/components/DetailView';
 import { Bookmark, SlidersHorizontal, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import memoryService from '@/services/memoryService';
-import type { Snapshot } from '@/types/memoir-api.types';
+import type { Snapshot, SearchResultItem, SimilarItem } from '@/types/memoir-api.types';
 
 export default function Home() {
   const { theme, toggleTheme, mounted } = useTheme();
@@ -22,9 +23,17 @@ export default function Home() {
   const [fullTimelineRange, setFullTimelineRange] = useState<{ start: Date; end: Date } | null>(null);
   const [activePriorityFilter, setActivePriorityFilter] = useState<{ id: string; title: string } | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('chronological');
-  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
-  const [memoryStack, setMemoryStack] = useState<Snapshot[][]>([]);
+  // Navigation stack for detail views - enables breadcrumb back navigation
+  const [detailStack, setDetailStack] = useState<SearchResultItem[]>([]);
   const filtersRef = useRef<HTMLDivElement>(null);
+
+  // Derive breadcrumbs from detailStack
+  const breadcrumbs: BreadcrumbItem[] = detailStack.map((item, index) => ({
+    id: item.snapshot_id || item.memory_id || String(index),
+    label: (item.title || item.summary?.slice(0, 40) || 'Memory').slice(0, 40) + 
+           ((item.title || item.summary || '').length > 40 ? '...' : ''),
+    timestamp: item.timestamp,
+  }));
 
   // Load user info on mount to get the full timeline range
   useEffect(() => {
@@ -70,9 +79,8 @@ export default function Home() {
     setSnapshots(results);
     setSearchQuery(query);
     setIsLoading(false);
-    // Reset breadcrumbs when new search happens
-    setBreadcrumbs([]);
-    setMemoryStack([]);
+    // Reset detail stack when new search happens
+    setDetailStack([]);
   };
 
   const handleSearchStart = () => {
@@ -94,14 +102,13 @@ export default function Home() {
     
     setActivePriorityFilter(priority ? { id: priorityId, title: priority.title } : null);
     
-    // Reset breadcrumbs when new priority search happens
-    setBreadcrumbs([]);
-    setMemoryStack([]);
+    // Reset detail stack when new priority search happens
+    setDetailStack([]);
     
     try {
       const response = await memoryService.searchByGoalId(priorityId, {
         k: 30,
-        threshold: 0.5,
+        threshold: 0.3,
         include_stats: true,
         include_image: true,
       });
@@ -123,63 +130,71 @@ export default function Home() {
     setActivePriorityFilter(null);
     setSnapshots([]);
     setSearchQuery('');
-    setBreadcrumbs([]);
-    setMemoryStack([]);
+    setDetailStack([]);
   };
 
-  // Handle memory click for breadcrumb navigation
+  // Handle memory click - push to detail stack for breadcrumb navigation
   const handleMemoryClick = (memory: Snapshot) => {
     console.log('📍 Memory clicked:', memory);
     
-    // For now, we'll simulate drilling into a memory
-    // In a real implementation, this would fetch child memories
-    const label = memory.summary?.split('\n')[0]?.slice(0, 40) || 'Memory';
+    // Convert Snapshot to SearchResultItem format for DetailView
+    const searchResult: SearchResultItem = {
+      snapshot_id: memory.snapshot_id,
+      memory_id: memory.memory_id,
+      episode_id: memory.episode_id,
+      timestamp: memory.timestamp,
+      captured_at: memory.captured_at,
+      app: memory.app,
+      url: memory.url,
+      window_title: memory.window_title,
+      image_path: memory.image_url, // Snapshot uses image_url, SearchResultItem uses image_path
+      title: memory.title,
+      summary: memory.summary,
+      bullets: memory.bullets,
+      tags: memory.tags,
+      entities: memory.entities,
+      similarity: memory.similarity,
+      vector_score: memory.vector_score,
+      bm25_score: memory.bm25_score,
+    };
     
-    // Save current state to stack
-    setMemoryStack(prev => [...prev, snapshots]);
-    
-    // Add to breadcrumbs
-    setBreadcrumbs(prev => [
-      ...prev,
-      {
-        id: memory.memory_id || String(Date.now()),
-        label: label + (label.length === 40 ? '...' : ''),
-        timestamp: memory.timestamp,
-      }
-    ]);
-    
-    // For demo purposes, show just this memory
-    // In real implementation, you'd fetch child/related memories
-    setSnapshots([memory]);
+    // Push to detail stack (starts fresh navigation)
+    setDetailStack([searchResult]);
   };
 
-  // Handle breadcrumb navigation
+  // Handle clicking a similar item in the detail view - adds to breadcrumb trail
+  const handleSimilarClick = (item: SimilarItem) => {
+    console.log('🔗 Similar item clicked:', item);
+    
+    // Convert SimilarItem to SearchResultItem format
+    const searchResult: SearchResultItem = {
+      snapshot_id: item.snapshot_id,
+      memory_id: item.memory_id,
+      episode_id: item.episode_id,
+      timestamp: item.timestamp,
+      title: item.title,
+      summary: item.summary,
+      image_path: item.image_path,
+      app: item.app,
+      similarity: item.similarity,
+    };
+    
+    // Push to detail stack (adds to breadcrumb trail)
+    setDetailStack(prev => [...prev, searchResult]);
+  };
+
+  // Handle breadcrumb navigation - navigate back through detail history
   const handleBreadcrumbNavigate = (index: number) => {
     console.log('🔙 Navigating to breadcrumb index:', index);
     
     if (index === -1) {
-      // Navigate to home (root level)
-      if (memoryStack.length > 0) {
-        setSnapshots(memoryStack[0]);
-      }
-      setBreadcrumbs([]);
-      setMemoryStack([]);
-    } else if (index < breadcrumbs.length - 1) {
-      // Navigate to a specific level
-      const newBreadcrumbs = breadcrumbs.slice(0, index + 1);
-      const newStack = memoryStack.slice(0, index + 1);
-      
-      // Restore the snapshots from the next level in the stack
-      if (memoryStack[index + 1]) {
-        setSnapshots(memoryStack[index + 1]);
-      } else if (memoryStack[index]) {
-        setSnapshots(memoryStack[index]);
-      }
-      
-      setBreadcrumbs(newBreadcrumbs);
-      setMemoryStack(newStack);
+      // Navigate to home (root level) - clear all detail navigation
+      setDetailStack([]);
+    } else if (index < detailStack.length - 1) {
+      // Navigate to a specific item in the stack
+      setDetailStack(prev => prev.slice(0, index + 1));
     }
-    // If clicking the current breadcrumb, do nothing
+    // If clicking the current breadcrumb (last item), do nothing
   };
 
   // Close filters when clicking outside
@@ -197,7 +212,7 @@ export default function Home() {
   }, [showFilters]);
 
   return (
-    <div className="min-h-screen flex flex-col select-none bg-background text-foreground transition-colors duration-200">
+    <div className="h-screen flex flex-col select-none bg-background text-foreground transition-colors duration-200 relative overflow-hidden">
       {/* Draggable title bar region */}
       <div
         data-tauri-drag-region
@@ -210,100 +225,125 @@ export default function Home() {
         <div className="flex-1" data-tauri-drag-region />
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 p-8 pt-4 flex flex-col overflow-auto">
-        <div className="max-w-6xl w-full mx-auto flex-1 flex flex-col gap-6">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Bookmark className="w-6 h-6 fill-foreground" />
-            </div>
-            
-            {/* Right side controls */}
-            <div className="flex items-center gap-3">
-              {/* View Toggle */}
-              <ViewToggle activeView={viewMode} onViewChange={setViewMode} />
+      {/* Main content - scrollable area */}
+      <div className="flex-1 overflow-auto pb-32">
+        <div className="p-8 pt-4">
+          <div className="max-w-6xl w-full mx-auto flex flex-col gap-6">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Bookmark className="w-6 h-6 fill-foreground" />
+              </div>
               
-              {/* Theme Toggle */}
-              <button
-                onClick={toggleTheme}
-                className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                aria-label="Toggle theme"
-              >
-                {mounted && (theme === 'dark' ? (
-                  <Sun className="w-4 h-4 text-muted-foreground" />
-                ) : (
-                  <Moon className="w-4 h-4 text-muted-foreground" />
-                ))}
-                {!mounted && <div className="w-4 h-4" />}
-              </button>
-              
-              {/* Filter Toggle - Ghost Button */}
-              <div className="relative" ref={filtersRef}>
+              {/* Right side controls */}
+              <div className="flex items-center gap-3">
+                {/* View Toggle */}
+                <ViewToggle activeView={viewMode} onViewChange={setViewMode} />
+                
+                {/* Theme Toggle */}
                 <button
-                  onClick={() => setShowFilters(!showFilters)}
+                  onClick={toggleTheme}
                   className="p-1.5 hover:bg-muted rounded-md transition-colors"
+                  aria-label="Toggle theme"
                 >
-                  <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
+                  {mounted && (theme === 'dark' ? (
+                    <Sun className="w-4 h-4 text-muted-foreground" />
+                  ) : (
+                    <Moon className="w-4 h-4 text-muted-foreground" />
+                  ))}
+                  {!mounted && <div className="w-4 h-4" />}
                 </button>
                 
-                {/* Filters Popover */}
-                {showFilters && (
-                  <div className="absolute right-0 top-10 w-64 bg-card border border-border rounded-lg shadow-xl z-50 p-4">
-                    <div className="mb-4">
-                      <label className="text-sm font-medium text-foreground block mb-2">
-                        Starting Window
-                      </label>
-                      <select
-                        value={startingWindow}
-                        onChange={(e) => {
-                          setStartingWindow(e.target.value);
-                        }}
-                        className="w-full bg-muted text-foreground text-sm rounded-md px-3 py-2 border border-border focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="auto">Auto</option>
-                        <option value="hour">Hour</option>
-                        <option value="day">Day</option>
-                        <option value="week">Week</option>
-                        <option value="month">Month</option>
-                        <option value="year">Year</option>
-                      </select>
+                {/* Filter Toggle - Ghost Button */}
+                <div className="relative" ref={filtersRef}>
+                  <button
+                    onClick={() => setShowFilters(!showFilters)}
+                    className="p-1.5 hover:bg-muted rounded-md transition-colors"
+                  >
+                    <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
+                  </button>
+                  
+                  {/* Filters Popover */}
+                  {showFilters && (
+                    <div className="absolute right-0 top-10 w-64 bg-card border border-border rounded-lg shadow-xl z-50 p-4">
+                      <div className="mb-4">
+                        <label className="text-sm font-medium text-foreground block mb-2">
+                          Starting Window
+                        </label>
+                        <select
+                          value={startingWindow}
+                          onChange={(e) => {
+                            setStartingWindow(e.target.value);
+                          }}
+                          className="w-full bg-muted text-foreground text-sm rounded-md px-3 py-2 border border-border focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          <option value="auto">Auto</option>
+                          <option value="hour">Hour</option>
+                          <option value="day">Day</option>
+                          <option value="week">Week</option>
+                          <option value="month">Month</option>
+                          <option value="year">Year</option>
+                        </select>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
+
+            {/* Priorities Section - Only show in timeline mode */}
+            {viewMode === 'timeline' && (
+              <Priorities onPrioritySearch={handlePrioritySearch} compact={true} />
+            )}
+
+            {/* Breadcrumb Navigation - shown when navigating detail views */}
+            {detailStack.length > 0 && (
+              <BreadcrumbNav items={breadcrumbs} onNavigate={handleBreadcrumbNavigate} />
+            )}
+
+            {/* Content Area - switches based on view mode and detail state */}
+            {detailStack.length > 0 ? (
+              // Show detail view for the current item in the stack
+              <DetailView
+                result={detailStack[detailStack.length - 1]}
+                onSimilarClick={handleSimilarClick}
+              />
+            ) : viewMode === 'timeline' ? (
+              <Timeline 
+                snapshots={snapshots} 
+                searchQuery={searchQuery} 
+                startingWindow={startingWindow}
+                fullTimelineRange={fullTimelineRange}
+              />
+            ) : (
+              <MemoryList
+                memories={snapshots}
+                breadcrumbs={[]}
+                onMemoryClick={handleMemoryClick}
+                onBreadcrumbNavigate={handleBreadcrumbNavigate}
+                isLoading={isLoading}
+              />
+            )}
           </div>
+        </div>
+      </div>
 
-          {/* Priorities Section - Compact by default */}
-          <Priorities onPrioritySearch={handlePrioritySearch} compact={true} />
-
-          {/* Content Area - switches based on view mode */}
-          {viewMode === 'timeline' ? (
-            <Timeline 
-              snapshots={snapshots} 
-              searchQuery={searchQuery} 
-              startingWindow={startingWindow}
-              fullTimelineRange={fullTimelineRange}
-            />
-          ) : (
-            <MemoryList
-              memories={snapshots}
-              breadcrumbs={breadcrumbs}
-              onMemoryClick={handleMemoryClick}
-              onBreadcrumbNavigate={handleBreadcrumbNavigate}
+      {/* Fixed bottom prompt box with gradient fade */}
+      <div className="absolute bottom-0 left-0 right-0 z-50">
+        {/* Gradient fade overlay */}
+        <div className="h-16 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none" />
+        
+        {/* Prompt box container */}
+        <div className="bg-background px-8 pb-6">
+          <div className="max-w-6xl w-full mx-auto">
+            <PromptBox 
+              onSearchResults={handleSearchResults} 
+              onSearchStart={handleSearchStart}
               isLoading={isLoading}
+              activePriorityFilter={activePriorityFilter}
+              onRemovePriorityFilter={handleRemovePriorityFilter}
             />
-          )}
-
-          {/* Prompt Box Component */}
-          <PromptBox 
-            onSearchResults={handleSearchResults} 
-            onSearchStart={handleSearchStart}
-            isLoading={isLoading}
-            activePriorityFilter={activePriorityFilter}
-            onRemovePriorityFilter={handleRemovePriorityFilter}
-          />
+          </div>
         </div>
       </div>
     </div>

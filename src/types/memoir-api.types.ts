@@ -21,11 +21,23 @@ export interface HTTPValidationError {
 // ============================================================================
 
 export interface Snapshot {
+  snapshot_id?: string;
   memory_id?: string;
+  episode_id?: string | null;
   timestamp?: string;
+  captured_at?: number;
+  app?: string;
+  url?: string | null;
+  window_title?: string;
+  title?: string;
   summary?: string;
+  bullets?: string[];
+  tags?: string[];
+  entities?: string[];
   image_url?: string;
   similarity?: number;
+  vector_score?: number;
+  bm25_score?: number;
   stats?: {
     [key: string]: any;
   };
@@ -69,6 +81,48 @@ export interface SearchSnapshotsParams {
   include_image?: boolean; // Include image URL in response (default: false)
 }
 
+// ============================================================================
+// Unified Search Types
+// ============================================================================
+
+export interface UnifiedSearchParams {
+  q: string; // Search query text (required)
+  k?: number; // Maximum number of results (1-100, default: 30)
+  types?: string; // Comma-separated entity types: snapshot,episode,memory
+  app?: string; // Filter by app name
+  start?: number; // Filter by start time (unix ms)
+  end?: number; // Filter by end time (unix ms)
+  vector_weight?: number; // Weight for vector similarity score (0-1, default: 0.6)
+  bm25_weight?: number; // Weight for BM25 keyword score (0-1, default: 0.4)
+}
+
+export interface SearchResultItem {
+  snapshot_id?: string;
+  memory_id?: string;
+  episode_id?: string | null;
+  timestamp?: string;
+  captured_at?: number;
+  app?: string;
+  url?: string | null;
+  window_title?: string;
+  image_path?: string;
+  title?: string;
+  summary?: string;
+  bullets?: string[];
+  tags?: string[];
+  entities?: string[];
+  similarity?: number; // Blended score
+  vector_score?: number;
+  bm25_score?: number;
+  [key: string]: any; // Allow additional properties
+}
+
+export interface SearchResponse {
+  results: SearchResultItem[];
+  total: number;
+  query: string;
+}
+
 export interface GetImageParams {
   filename: string; // Image filename
 }
@@ -91,5 +145,76 @@ export interface HealthResponse {
 export interface UserInfoResponse {
   total_snapshots: number;
   oldest_snapshot: string | null; // ISO timestamp
+}
+
+// ============================================================================
+// Detail View Types
+// ============================================================================
+
+export interface SnapshotDetail {
+  snapshot_id: string;
+  memory_id?: string;
+  episode_id?: string | null;
+  timestamp?: string;
+  captured_at?: number;
+  app?: string;
+  url?: string | null;
+  window_title?: string;
+  title?: string;
+  summary?: string;
+  bullets?: string[];
+  tags?: string[];
+  entities?: string[];
+  image_path?: string;
+  image_url?: string;
+  stats?: {
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
+export interface EpisodeSnapshot {
+  snapshot_id: string;
+  timestamp?: string;
+  captured_at?: number;
+  title?: string;
+  summary?: string;
+  app?: string;
+  image_path?: string;
+}
+
+export interface EpisodeWithSnapshots {
+  episode_id: string;
+  title?: string;
+  summary?: string;
+  start_time?: string;
+  end_time?: string;
+  app?: string;
+  snapshots: EpisodeSnapshot[];
+}
+
+export interface SimilarItem {
+  snapshot_id?: string;
+  memory_id?: string;
+  episode_id?: string | null;
+  timestamp?: string;
+  title?: string;
+  summary?: string;
+  image_path?: string;
+  app?: string;
+  similarity?: number;
+}
+
+export interface SimilarResponse {
+  similar: SimilarItem[];
+  query_id: string;
+  k: number;
+}
+
+export interface DetailViewData {
+  imageUrl: string | null;
+  snapshot: SnapshotDetail | null;
+  episode: EpisodeWithSnapshots | null;
+  similar: SimilarItem[];
 }
 

@@ -1,12 +1,53 @@
 'use client';
 
 import React from 'react';
-import { ChevronRight, Clock } from 'lucide-react';
+import { ChevronRight, Clock, Camera, Film, Brain } from 'lucide-react';
 import type { Snapshot } from '@/types/memoir-api.types';
 
 interface MemoryCardProps {
   memory: Snapshot;
   onClick: (memory: Snapshot) => void;
+}
+
+type EntityType = 'snapshot' | 'episode' | 'memory';
+
+interface EntityTypeConfig {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  bgColor: string;
+  textColor: string;
+  iconColor: string;
+}
+
+const ENTITY_TYPE_CONFIG: Record<EntityType, EntityTypeConfig> = {
+  snapshot: {
+    label: 'Snapshot',
+    icon: Camera,
+    bgColor: 'bg-sky-500/15',
+    textColor: 'text-sky-600 dark:text-sky-400',
+    iconColor: 'text-sky-500',
+  },
+  episode: {
+    label: 'Episode',
+    icon: Film,
+    bgColor: 'bg-violet-500/15',
+    textColor: 'text-violet-600 dark:text-violet-400',
+    iconColor: 'text-violet-500',
+  },
+  memory: {
+    label: 'Memory',
+    icon: Brain,
+    bgColor: 'bg-amber-500/15',
+    textColor: 'text-amber-600 dark:text-amber-400',
+    iconColor: 'text-amber-500',
+  },
+};
+
+function getEntityType(memory: Snapshot): EntityType {
+  // Determine type based on which ID is present
+  if (memory.episode_id) return 'episode';
+  if (memory.snapshot_id) return 'snapshot';
+  return 'memory';
 }
 
 function formatRelativeTime(timestamp: string): string {
@@ -42,9 +83,13 @@ function formatTimestamp(timestamp: string): string {
 }
 
 export default function MemoryCard({ memory, onClick }: MemoryCardProps) {
-  const title = memory.summary?.split('\n')[0]?.slice(0, 80) || 'Memory';
-  const description = memory.summary?.split('\n').slice(1).join('\n').trim().slice(0, 200) || '';
-  const hasMore = title.length === 80 || description.length === 200;
+  const title = memory.title || 'Memory';
+  const summary = memory.summary?.slice(0, 200) || '';
+  const hasMore = summary.length === 200;
+  
+  const entityType = getEntityType(memory);
+  const typeConfig = ENTITY_TYPE_CONFIG[entityType];
+  const TypeIcon = typeConfig.icon;
 
   return (
     <div
@@ -53,26 +98,37 @@ export default function MemoryCard({ memory, onClick }: MemoryCardProps) {
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          {/* Timestamp */}
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-            <Clock className="w-3 h-3" />
-            <span>{memory.timestamp ? formatRelativeTime(memory.timestamp) : 'Unknown time'}</span>
-            {memory.timestamp && (
-              <span className="text-muted-foreground/60">
-                • {formatTimestamp(memory.timestamp)}
+          {/* Entity Type Tag & Timestamp Row */}
+          <div className="flex items-center gap-2 mb-2">
+            {/* Entity Type Tag */}
+            <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${typeConfig.bgColor}`}>
+              <TypeIcon className={`w-3 h-3 ${typeConfig.iconColor}`} />
+              <span className={`text-[10px] font-medium ${typeConfig.textColor}`}>
+                {typeConfig.label}
               </span>
-            )}
+            </div>
+            
+            {/* Timestamp */}
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock className="w-3 h-3" />
+              <span>{memory.timestamp ? formatRelativeTime(memory.timestamp) : 'Unknown time'}</span>
+              {memory.timestamp && (
+                <span className="text-muted-foreground/60">
+                  • {formatTimestamp(memory.timestamp)}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Title */}
           <h3 className="text-sm font-medium text-foreground mb-1 line-clamp-2">
-            {title}{title.length === 80 && '...'}
+            {title}
           </h3>
 
-          {/* Description */}
-          {description && (
+          {/* Summary */}
+          {summary && (
             <p className="text-xs text-muted-foreground line-clamp-2">
-              {description}{hasMore && '...'}
+              {summary}{hasMore && '...'}
             </p>
           )}
 

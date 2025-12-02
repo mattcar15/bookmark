@@ -36,7 +36,7 @@ export default function PromptBox({
       const response = await memoryService.searchSnapshots({
         query: query.trim(),
         k: 30,
-        threshold: 0.5,
+        threshold: 0.3,
         include_stats: true,
         include_image: true,
       });
