@@ -250,10 +250,15 @@ export const memoryService = {
   async getSimilar(
     type: 'snapshot' | 'memory' | 'episode',
     id: string,
-    k: number = 10
+    k: number = 10,
+    threshold?: number
   ): Promise<SimilarResponse> {
     const paramKey = `${type}_id`;
-    return fetchApi<SimilarResponse>('/search/similar', { [paramKey]: id, k });
+    const params: Record<string, any> = { [paramKey]: id, k };
+    if (threshold !== undefined) {
+      params.threshold = threshold;
+    }
+    return fetchApi<SimilarResponse>('/search/similar', params);
   },
 
   /**
@@ -284,9 +289,9 @@ export const memoryService = {
           })
       : Promise.resolve(null);
 
-    // 4. Similar items (semantic neighbors)
+    // 4. Similar items (semantic neighbors) - filter to 40% threshold
     const similarPromise = result.snapshot_id
-      ? this.getSimilar('snapshot', result.snapshot_id, 10)
+      ? this.getSimilar('snapshot', result.snapshot_id, 10, 0.4)
           .then((d) => d.similar)
           .catch((err) => {
             console.warn('Failed to fetch similar items:', err);

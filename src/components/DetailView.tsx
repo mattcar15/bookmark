@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock,
   Tag,
@@ -16,6 +16,7 @@ import {
   Loader2,
   Maximize2,
   X,
+  ChevronDown,
 } from 'lucide-react';
 import type {
   SearchResultItem,
@@ -24,6 +25,9 @@ import type {
   SimilarItem,
 } from '@/types/memoir-api.types';
 import memoryService from '@/services/memoryService';
+
+// Constants for pagination
+const ITEMS_PER_PAGE = 10;
 
 interface DetailViewProps {
   result: SearchResultItem;
@@ -52,9 +56,9 @@ function formatTimeOnly(timestamp: string): string {
   });
 }
 
-function getEntityTypeIcon(item: { snapshot_id?: string; episode_id?: string | null; memory_id?: string }) {
-  if (item.episode_id) return Film;
-  return Brain;
+function getEntityTypeInfo(item: { snapshot_id?: string; episode_id?: string | null; memory_id?: string }) {
+  if (item.episode_id) return { icon: Film, label: 'Episode', color: 'bg-violet-500/80' };
+  return { icon: Brain, label: 'Memory', color: 'bg-amber-500/80' };
 }
 
 export default function DetailView({ result, onSimilarClick }: DetailViewProps) {
@@ -63,11 +67,17 @@ export default function DetailView({ result, onSimilarClick }: DetailViewProps) 
   const [error, setError] = useState<string | null>(null);
   const [selectedEpisodeSnapshot, setSelectedEpisodeSnapshot] = useState<string | null>(null);
   const [isImageExpanded, setIsImageExpanded] = useState(false);
+  
+  // Similar items pagination state
+  const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
       setError(null);
+      // Reset similar items state when loading new detail
+      setDisplayCount(ITEMS_PER_PAGE);
       try {
         const detailData = await memoryService.loadDetailViewData(result);
         setData(detailData);
@@ -85,6 +95,37 @@ export default function DetailView({ result, onSimilarClick }: DetailViewProps) 
 
     loadData();
   }, [result]);
+
+  // Similar items (already filtered by API with 0.4 threshold)
+  const similarItems = data?.similar || [];
+  const displayedItems = similarItems.slice(0, displayCount);
+  const hasMoreItems = displayCount < similarItems.length;
+
+  // Infinite scroll observer
+  const handleIntersection = useCallback((entries: IntersectionObserverEntry[]) => {
+    const [entry] = entries;
+    if (entry.isIntersecting && hasMoreItems) {
+      setDisplayCount(prev => Math.min(prev + ITEMS_PER_PAGE, similarItems.length));
+    }
+  }, [hasMoreItems, similarItems.length]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(handleIntersection, {
+      root: null,
+      rootMargin: '100px',
+      threshold: 0.1
+    });
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [handleIntersection]);
+
+  const handleLoadMore = () => {
+    setDisplayCount(prev => Math.min(prev + ITEMS_PER_PAGE, similarItems.length));
+  };
 
   const handleSimilarClick = (item: SimilarItem) => {
     if (onSimilarClick) {
@@ -104,9 +145,6 @@ export default function DetailView({ result, onSimilarClick }: DetailViewProps) 
   }, [isImageExpanded]);
 
   const snapshot = data?.snapshot || result;
-  const TypeIcon = getEntityTypeIcon(result);
-
-  const hasSimilar = data?.similar && data.similar.length > 0;
 
   return (
     <div className="flex flex-col animate-in fade-in duration-200">
@@ -140,9 +178,9 @@ export default function DetailView({ result, onSimilarClick }: DetailViewProps) 
           </button>
         </div>
       ) : (
-        <div className={`grid grid-cols-1 ${hasSimilar ? 'lg:grid-cols-3' : ''} gap-6`}>
-          {/* Main content - takes 2 cols on large screens if similar exists */}
-          <div className={hasSimilar ? 'lg:col-span-2' : ''}>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main content - takes 2 cols on large screens */}
+          <div className="lg:col-span-2">
                 {/* Screenshot - centered with expand on hover */}
                 {data?.imageUrl && (
                   <div className="flex justify-center mb-6">
@@ -277,24 +315,50 @@ export default function DetailView({ result, onSimilarClick }: DetailViewProps) 
                 )}
               </div>
 
-              {/* Sidebar - Similar Items - only show if there are similar items */}
-              {hasSimilar && (
-                <div className="bg-card border border-border rounded-xl p-6">
-                  <h3 className="text-sm font-medium text-foreground mb-4 flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-amber-500" />
-                    Similar Memories
-                  </h3>
-                  <div className="space-y-3">
-                    {data.similar.map((item, i) => (
+              {/* Sidebar - Similar Items - always show */}
+              <div className="bg-card border border-border rounded-xl p-6">
+                <h3 className="text-sm font-medium text-foreground mb-4 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  Similar
+                  {similarItems.length > 0 && (
+                    <span className="text-xs text-muted-foreground ml-1">
+                      ({similarItems.length})
+                    </span>
+                  )}
+                </h3>
+                
+                {displayedItems.length > 0 ? (
+                  <div className="space-y-4">
+                    {displayedItems.map((item, i) => (
                       <SimilarItemCard
                         key={item.snapshot_id || item.memory_id || i}
                         item={item}
                         onClick={() => handleSimilarClick(item)}
                       />
                     ))}
+                    
+                    {/* Intersection observer target for infinite scroll */}
+                    {hasMoreItems && <div ref={loadMoreRef} className="h-1" />}
+                    
+                    {/* Load more button */}
+                    {hasMoreItems && (
+                      <div className="flex justify-center mt-2">
+                        <button
+                          onClick={handleLoadMore}
+                          className="py-1.5 px-3 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent hover:border-border rounded-lg transition-colors flex items-center gap-1.5"
+                        >
+                          Load more
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-xs text-muted-foreground">No similar items found</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -406,37 +470,46 @@ interface SimilarItemCardProps {
 }
 
 function SimilarItemCard({ item, onClick }: SimilarItemCardProps) {
-  const TypeIcon = getEntityTypeIcon(item);
+  const typeInfo = getEntityTypeInfo(item);
+  const TypeIcon = typeInfo.icon;
   
   return (
     <button
       onClick={onClick}
-      className="w-full text-left bg-card border border-border/60 rounded-lg overflow-hidden hover:border-border hover:bg-muted/30 transition-all group"
+      className="w-full text-left rounded-lg overflow-hidden hover:ring-2 hover:ring-primary/30 transition-all group relative h-40"
     >
-      {item.image_path && (
+      {/* Full-height background image */}
+      {item.image_path ? (
         <img
           src={memoryService.getImageUrl({ filename: item.image_path.split('/').pop() || '' })}
           alt={item.title || 'Similar memory'}
-          className="w-full h-20 object-cover"
+          className="absolute inset-0 w-full h-full object-cover"
         />
+      ) : (
+        <div className="absolute inset-0 w-full h-full bg-muted" />
       )}
-      <div className="p-2.5">
-        <div className="flex items-center gap-1.5 mb-1">
-          <TypeIcon className="w-3 h-3 text-muted-foreground" />
+      
+      {/* Type badge in top left */}
+      <div className={`absolute top-2 left-2 ${typeInfo.color} backdrop-blur-sm px-1.5 py-0.5 rounded flex items-center gap-1`}>
+        <TypeIcon className="w-3 h-3 text-white" />
+        <span className="text-[10px] text-white font-medium">{typeInfo.label}</span>
+      </div>
+      
+      {/* Gradient overlay at bottom - shorter */}
+      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/90 to-transparent" />
+      
+      {/* Text content overlaid at bottom */}
+      <div className="absolute bottom-0 left-0 right-0 p-2.5">
+        <div className="flex items-center gap-1.5 mb-0.5">
           {item.similarity !== undefined && (
-            <span className="text-[10px] text-muted-foreground/70">
+            <span className="text-[10px] text-white/60">
               {(item.similarity * 100).toFixed(0)}% match
             </span>
           )}
         </div>
-        <p className="text-xs text-foreground line-clamp-2 group-hover:text-primary transition-colors">
+        <p className="text-xs text-white font-medium line-clamp-1">
           {item.title || item.summary?.slice(0, 60) || 'Memory'}
         </p>
-        {item.timestamp && (
-          <p className="text-[10px] text-muted-foreground/60 mt-1">
-            {formatTimeOnly(item.timestamp)}
-          </p>
-        )}
       </div>
     </button>
   );
