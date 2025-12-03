@@ -13,6 +13,12 @@ import { useTheme } from '@/components/ThemeProvider';
 import memoryService from '@/services/memoryService';
 import type { Snapshot, SearchResultItem, SimilarItem } from '@/types/memoir-api.types';
 
+// Special breadcrumb type for "Similar to X" view
+interface SimilarSearchState {
+  items: SimilarItem[];
+  sourceTitle: string;
+}
+
 export default function Home() {
   const { theme, toggleTheme, mounted } = useTheme();
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -25,15 +31,25 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<ViewMode>('chronological');
   // Navigation stack for detail views - enables breadcrumb back navigation
   const [detailStack, setDetailStack] = useState<SearchResultItem[]>([]);
+  // State for "View All Similar" mode - when set, shows similar items in list view
+  const [similarSearchState, setSimilarSearchState] = useState<SimilarSearchState | null>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
 
-  // Derive breadcrumbs from detailStack
-  const breadcrumbs: BreadcrumbItem[] = detailStack.map((item, index) => ({
-    id: item.snapshot_id || item.memory_id || String(index),
-    label: (item.title || item.summary?.slice(0, 40) || 'Memory').slice(0, 40) + 
-           ((item.title || item.summary || '').length > 40 ? '...' : ''),
-    timestamp: item.timestamp,
-  }));
+  // Derive breadcrumbs from detailStack and similarSearchState
+  const breadcrumbs: BreadcrumbItem[] = [
+    // Add items from detail stack
+    ...detailStack.map((item, index) => ({
+      id: item.snapshot_id || item.memory_id || String(index),
+      label: (item.title || item.summary?.slice(0, 40) || 'Memory').slice(0, 40) + 
+             ((item.title || item.summary || '').length > 40 ? '...' : ''),
+      timestamp: item.timestamp,
+    })),
+    // Add "Similar to X" breadcrumb if in similar search mode
+    ...(similarSearchState ? [{
+      id: 'similar-search',
+      label: `Similar to "${similarSearchState.sourceTitle.slice(0, 25)}${similarSearchState.sourceTitle.length > 25 ? '...' : ''}"`,
+    }] : []),
+  ];
 
   // Load user info on mount to get the full timeline range
   useEffect(() => {
@@ -79,8 +95,9 @@ export default function Home() {
     setSnapshots(results);
     setSearchQuery(query);
     setIsLoading(false);
-    // Reset detail stack when new search happens
+    // Reset detail stack and similar search when new search happens
     setDetailStack([]);
+    setSimilarSearchState(null);
   };
 
   const handleSearchStart = () => {
@@ -102,8 +119,9 @@ export default function Home() {
     
     setActivePriorityFilter(priority ? { id: priorityId, title: priority.title } : null);
     
-    // Reset detail stack when new priority search happens
+    // Reset detail stack and similar search when new priority search happens
     setDetailStack([]);
+    setSimilarSearchState(null);
     
     try {
       const response = await memoryService.searchByGoalId(priorityId, {
@@ -131,6 +149,7 @@ export default function Home() {
     setSnapshots([]);
     setSearchQuery('');
     setDetailStack([]);
+    setSimilarSearchState(null);
   };
 
   // Handle memory click - push to detail stack for breadcrumb navigation
@@ -179,20 +198,36 @@ export default function Home() {
       similarity: item.similarity,
     };
     
+    // If we're in similar search mode, clear it and replace with the clicked item
+    if (similarSearchState) {
+      setSimilarSearchState(null);
+    }
+    
     // Push to detail stack (adds to breadcrumb trail)
     setDetailStack(prev => [...prev, searchResult]);
   };
 
+  // Handle "View All Similar" - shows similar items in a list view
+  const handleViewAllSimilar = (items: SimilarItem[], sourceTitle: string) => {
+    console.log('👁️ View all similar:', items.length, 'items for', sourceTitle);
+    setSimilarSearchState({ items, sourceTitle });
+  };
+
   // Handle breadcrumb navigation - navigate back through detail history
   const handleBreadcrumbNavigate = (index: number) => {
-    console.log('🔙 Navigating to breadcrumb index:', index);
+    console.log('🔙 Navigating to breadcrumb index:', index, 'detailStack length:', detailStack.length, 'similarSearchState:', !!similarSearchState);
     
     if (index === -1) {
-      // Navigate to home (root level) - clear all detail navigation
+      // Navigate to home (root level) - clear all detail navigation and similar search
       setDetailStack([]);
-    } else if (index < detailStack.length - 1) {
-      // Navigate to a specific item in the stack
+      setSimilarSearchState(null);
+    } else if (similarSearchState && index === breadcrumbs.length - 1) {
+      // Clicking on "Similar to X" breadcrumb when we're already there - do nothing
+      return;
+    } else if (index < detailStack.length) {
+      // Navigate to a specific item in the detail stack
       setDetailStack(prev => prev.slice(0, index + 1));
+      setSimilarSearchState(null); // Clear similar search when navigating back
     }
     // If clicking the current breadcrumb (last item), do nothing
   };
@@ -302,11 +337,45 @@ export default function Home() {
             )}
 
             {/* Content Area - switches based on view mode and detail state */}
-            {detailStack.length > 0 ? (
+            {similarSearchState ? (
+              // Show similar items in list view
+              <MemoryList
+                memories={similarSearchState.items.map(item => ({
+                  snapshot_id: item.snapshot_id,
+                  memory_id: item.memory_id,
+                  episode_id: item.episode_id,
+                  timestamp: item.timestamp,
+                  title: item.title,
+                  summary: item.summary,
+                  image_url: item.image_path,
+                  app: item.app,
+                  similarity: item.similarity,
+                }))}
+                breadcrumbs={[]}
+                onMemoryClick={(memory) => {
+                  // Convert back to SimilarItem and use handleSimilarClick
+                  const similarItem: SimilarItem = {
+                    snapshot_id: memory.snapshot_id,
+                    memory_id: memory.memory_id,
+                    episode_id: memory.episode_id,
+                    timestamp: memory.timestamp,
+                    title: memory.title,
+                    summary: memory.summary,
+                    image_path: memory.image_url,
+                    app: memory.app,
+                    similarity: memory.similarity,
+                  };
+                  handleSimilarClick(similarItem);
+                }}
+                onBreadcrumbNavigate={handleBreadcrumbNavigate}
+                isLoading={false}
+              />
+            ) : detailStack.length > 0 ? (
               // Show detail view for the current item in the stack
               <DetailView
                 result={detailStack[detailStack.length - 1]}
                 onSimilarClick={handleSimilarClick}
+                onViewAllSimilar={handleViewAllSimilar}
               />
             ) : viewMode === 'timeline' ? (
               <Timeline 

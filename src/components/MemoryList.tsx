@@ -87,13 +87,17 @@ export default function MemoryList({
   // Check if there are more items to load (when showing low quality)
   const hasMoreItems = showLowQuality && displayCount < availableItems.length;
 
-  // Infinite scroll observer for good matches
+  // Infinite scroll observer for loading more items
   const handleIntersection = useCallback((entries: IntersectionObserverEntry[]) => {
     const [entry] = entries;
-    if (entry.isIntersecting && hasMoreGoodMatches) {
-      setDisplayCount(prev => Math.min(prev + ITEMS_PER_PAGE, goodMatches.length));
+    if (entry.isIntersecting) {
+      if (hasMoreGoodMatches) {
+        setDisplayCount(prev => Math.min(prev + ITEMS_PER_PAGE, goodMatches.length));
+      } else if (hasMoreItems) {
+        setDisplayCount(prev => Math.min(prev + ITEMS_PER_PAGE, availableItems.length));
+      }
     }
-  }, [hasMoreGoodMatches, goodMatches.length]);
+  }, [hasMoreGoodMatches, hasMoreItems, goodMatches.length, availableItems.length]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(handleIntersection, {
@@ -113,15 +117,11 @@ export default function MemoryList({
     setShowLowQuality(true);
   };
 
-  const handleLoadMore = () => {
-    setDisplayCount(prev => Math.min(prev + ITEMS_PER_PAGE, availableItems.length));
-  };
-
   const currentSortLabel = sortOptions.find(o => o.value === sortBy)?.label || 'Best Match';
   
   // Count display text
   const countText = goodMatches.length > 0 
-    ? `${goodMatches.length}${lowQualityMatches.length > 0 ? ` (+${lowQualityMatches.length} lower quality)` : ''}`
+    ? `${goodMatches.length}${lowQualityMatches.length > 0 ? ` (+${lowQualityMatches.length} less relevant)` : ''}`
     : `${sortedMemories.length}`;
 
   return (
@@ -199,39 +199,42 @@ export default function MemoryList({
           </div>
         ) : displayedItems.length > 0 ? (
           <div className="space-y-2">
-            {displayedItems.map((memory, index) => (
-              <MemoryCard
-                key={memory.memory_id || index}
-                memory={memory}
-                onClick={onMemoryClick}
-              />
-            ))}
+            {displayedItems.map((memory, index) => {
+              const isLowQuality = (memory.similarity ?? 0) < GOOD_MATCH_THRESHOLD;
+              const prevMemory = displayedItems[index - 1];
+              const prevIsGoodQuality = prevMemory && (prevMemory.similarity ?? 0) >= GOOD_MATCH_THRESHOLD;
+              const showDivider = isLowQuality && prevIsGoodQuality;
+              
+              return (
+                <React.Fragment key={memory.memory_id || index}>
+                  {showDivider && (
+                    <div className="flex items-center gap-3 py-4 px-2">
+                      <div className="flex-1 h-px bg-border" />
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span>Less relevant matches below</span>
+                      </div>
+                      <div className="flex-1 h-px bg-border" />
+                    </div>
+                  )}
+                  <MemoryCard
+                    memory={memory}
+                    onClick={onMemoryClick}
+                  />
+                </React.Fragment>
+              );
+            })}
             
-            {/* Intersection observer target for infinite scroll of good matches */}
-            {hasMoreGoodMatches && <div ref={loadMoreRef} className="h-1" />}
+            {/* Intersection observer target for infinite scroll */}
+            {(hasMoreGoodMatches || hasMoreItems) && <div ref={loadMoreRef} className="h-1" />}
             
-            {/* Show button to load lower quality matches when good matches are exhausted */}
+            {/* Show button to load less relevant matches when good matches are exhausted */}
             {hasLowQualityToShow && !hasMoreGoodMatches && (
               <div className="flex justify-center mt-4">
                 <button
                   onClick={handleShowLowQuality}
                   className="py-2.5 px-4 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent hover:border-border rounded-lg transition-colors flex items-center gap-2"
                 >
-                  <AlertCircle className="w-4 h-4" />
-                  Show {lowQualityMatches.length} lower quality match{lowQualityMatches.length !== 1 ? 'es' : ''} (below 40%)
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-            
-            {/* Load more button for when showing low quality items */}
-            {hasMoreItems && (
-              <div className="flex justify-center mt-2">
-                <button
-                  onClick={handleLoadMore}
-                  className="py-2 px-4 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent hover:border-border rounded-lg transition-colors flex items-center gap-1.5"
-                >
-                  Load more
+                  Show {lowQualityMatches.length} less relevant match{lowQualityMatches.length !== 1 ? 'es' : ''}
                   <ChevronDown className="w-4 h-4" />
                 </button>
               </div>
@@ -247,7 +250,7 @@ export default function MemoryList({
                 className="py-2.5 px-4 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent hover:border-border rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <AlertCircle className="w-4 h-4" />
-                Show {lowQualityMatches.length} lower quality match{lowQualityMatches.length !== 1 ? 'es' : ''}
+                Show {lowQualityMatches.length} less relevant match{lowQualityMatches.length !== 1 ? 'es' : ''}
               </button>
             )}
           </div>
