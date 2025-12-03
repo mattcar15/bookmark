@@ -592,13 +592,13 @@ export default function Timeline({ snapshots, searchQuery, startingWindow, fullT
 
   return (
     <div 
-      className="flex-1 flex flex-col"
+      className="flex-1 flex flex-col min-h-[400px]"
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
       {/* Timeline Container */}
-      <div className="flex-1 flex items-center" onWheel={handleWheel}>
+      <div className="flex-1 flex items-center justify-center" onWheel={handleWheel}>
         <div className="w-full">
           {allEvents.length === 0 ? (
             <div className="text-center py-16">

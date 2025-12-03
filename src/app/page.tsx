@@ -261,9 +261,9 @@ export default function Home() {
       </div>
 
       {/* Main content - scrollable area */}
-      <div className="flex-1 overflow-auto pb-32">
-        <div className="p-8 pt-4">
-          <div className="max-w-6xl w-full mx-auto flex flex-col gap-6">
+      <div className="flex-1 overflow-auto pb-32 flex flex-col">
+        <div className="p-8 pt-4 flex-1 flex flex-col">
+          <div className="max-w-6xl w-full mx-auto flex flex-col gap-6 flex-1">
             {/* Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Search } from 'lucide-react';
 import memoryService from '@/services/memoryService';
 import type { Snapshot } from '@/types/memoir-api.types';
@@ -22,6 +22,17 @@ export default function PromptBox({
   onRemovePriorityFilter,
 }: PromptBoxProps) {
   const [query, setQuery] = useState('');
+  const prevQueryRef = useRef(query);
+
+  // Clear search results when the query is cleared
+  useEffect(() => {
+    // If query was non-empty and is now empty, clear results
+    if (prevQueryRef.current.trim().length > 0 && query.trim().length === 0) {
+      console.log('🧹 Query cleared, clearing search results');
+      onSearchResults([], '');
+    }
+    prevQueryRef.current = query;
+  }, [query, onSearchResults]);
 
   const canSearch = query.trim().length > 0 && !isLoading;
 
