@@ -251,7 +251,7 @@ export default function Home() {
       {/* Draggable title bar region */}
       <div
         data-tauri-drag-region
-        className="h-8 flex items-center px-3 shrink-0"
+        className="h-7 flex items-center px-3 shrink-0"
       >
         {/* Left space for macOS traffic lights */}
         <div className="w-20" />
@@ -262,7 +262,7 @@ export default function Home() {
 
       {/* Main content - scrollable area */}
       <div className="flex-1 overflow-auto pb-32 flex flex-col">
-        <div className="p-8 pt-4 flex-1 flex flex-col">
+        <div className="p-8 pt-1 flex-1 flex flex-col">
           <div className="max-w-6xl w-full mx-auto flex flex-col gap-6 flex-1">
             {/* Header */}
             <div className="flex items-center justify-between">

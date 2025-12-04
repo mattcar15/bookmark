@@ -1,11 +1,23 @@
 use mouse_position::mouse_position::Mouse;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, LogicalSize, Manager, Size, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_store::StoreExt;
 
+#[cfg(target_os = "macos")]
+use std::sync::Mutex;
+
+#[cfg(target_os = "macos")]
+use objc::{class, msg_send, sel, sel_impl};
+#[cfg(target_os = "macos")]
+use objc::runtime::Object;
+#[cfg(target_os = "macos")]
+use std::{ffi::CStr, os::raw::c_char};
+
 const SETTINGS_FILE: &str = "settings.json";
 const DEFAULT_SHORTCUT: &str = "Command+Option+N";
+const QUICK_CAPTURE_COMPACT_WIDTH: i32 = 420;
+const QUICK_CAPTURE_COMPACT_HEIGHT: i32 = 66;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -18,6 +30,19 @@ impl Default for Settings {
             shortcut: DEFAULT_SHORTCUT.to_string(),
         }
     }
+}
+
+#[derive(Default)]
+struct FocusState {
+    #[cfg(target_os = "macos")]
+    previous_app: Mutex<Option<PreviousApp>>,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
+struct PreviousApp {
+    bundle_id: String,
+    pid: i32,
 }
 
 #[tauri::command]
@@ -51,10 +76,103 @@ fn capture_memory(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn resize_quick_capture(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("quick-capture") {
+        window
+            .set_size(Size::Logical(LogicalSize::new(width, height)))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn get_frontmost_app() -> Option<PreviousApp> {
+    unsafe {
+        let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let front_app: *mut Object = msg_send![workspace, frontmostApplication];
+        if front_app.is_null() {
+            return None;
+        }
+
+        let bundle_identifier: *mut Object = msg_send![front_app, bundleIdentifier];
+        if bundle_identifier.is_null() {
+            return None;
+        }
+
+        let bundle_identifier_ptr: *const c_char = msg_send![bundle_identifier, UTF8String];
+        if bundle_identifier_ptr.is_null() {
+            return None;
+        }
+
+        let bundle_id = CStr::from_ptr(bundle_identifier_ptr)
+            .to_string_lossy()
+            .into_owned();
+        let pid: i32 = msg_send![front_app, processIdentifier];
+
+        Some(PreviousApp { bundle_id, pid })
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn capture_previous_app(app: &AppHandle) {
+    if let Some(frontmost) = get_frontmost_app() {
+        if frontmost.bundle_id != app.config().identifier {
+            if let Ok(mut previous_app) = app.state::<FocusState>().previous_app.lock() {
+                *previous_app = Some(frontmost);
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn capture_previous_app(_app: &AppHandle) {}
+
+#[cfg(target_os = "macos")]
+fn restore_previous_app(app: &AppHandle) {
+    let previous = app
+        .state::<FocusState>()
+        .previous_app
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take());
+
+    if let Some(previous) = previous {
+        if previous.bundle_id != app.config().identifier {
+            restore_running_app(&previous);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn restore_previous_app(_app: &AppHandle) {}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn restore_running_app(previous: &PreviousApp) {
+    const NS_APPLICATION_ACTIVATE_IGNORING_OTHER_APPS: usize = 1 << 1;
+
+    unsafe {
+        let running_app: *mut Object = msg_send![
+            class!(NSRunningApplication),
+            runningApplicationWithProcessIdentifier: previous.pid
+        ];
+
+        if !running_app.is_null() {
+            let _activate: bool = msg_send![
+                running_app,
+                activateWithOptions: NS_APPLICATION_ACTIVATE_IGNORING_OTHER_APPS
+            ];
+        }
+    }
+}
+
+#[tauri::command]
 fn close_quick_capture(app: AppHandle) {
     if let Some(window) = app.get_webview_window("quick-capture") {
         let _ = window.close();
     }
+    restore_previous_app(&app);
 }
 
 fn get_mouse_position() -> (i32, i32) {
@@ -65,26 +183,34 @@ fn get_mouse_position() -> (i32, i32) {
 }
 
 fn show_quick_capture_window(app: &AppHandle) {
+    capture_previous_app(app);
     let (mouse_x, mouse_y) = get_mouse_position();
+    let window_height = QUICK_CAPTURE_COMPACT_HEIGHT;
+    let window_width = QUICK_CAPTURE_COMPACT_WIDTH;
     
     // Check if window already exists
     if let Some(window) = app.get_webview_window("quick-capture") {
+        let _ = window.set_size(Size::Logical(LogicalSize::new(
+            window_width as f64,
+            window_height as f64,
+        )));
         // Move to cursor position and show
-        let _ = window.set_position(tauri::PhysicalPosition::new(mouse_x - 190, mouse_y - 28));
+        let _ = window.set_position(tauri::PhysicalPosition::new(mouse_x - window_width / 2, mouse_y - window_height / 2));
         let _ = window.show();
         let _ = window.set_focus();
         return;
     }
     
     // Create new window at cursor position
+    // Size includes 6px padding on each side for rounded corners
     let window = WebviewWindowBuilder::new(
         app,
         "quick-capture",
         WebviewUrl::App("quick-capture".into()),
     )
     .title("")
-    .inner_size(380.0, 56.0)
-    .position((mouse_x - 190) as f64, (mouse_y - 28) as f64)
+    .inner_size(window_width as f64, window_height as f64)
+    .position((mouse_x - window_width / 2) as f64, (mouse_y - window_height / 2) as f64)
     .decorations(false)
     .resizable(false)
     .always_on_top(true)
@@ -195,10 +321,12 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_positioner::init())
+        .manage(FocusState::default())
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
             capture_memory,
+            resize_quick_capture,
             close_quick_capture
         ])
         .setup(|app| {
