@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Clock, LayoutList } from 'lucide-react';
+import { Clock, LayoutList, FileText } from 'lucide-react';
 
-export type ViewMode = 'timeline' | 'chronological';
+export type ViewMode = 'timeline' | 'chronological' | 'notes';
 
 interface ViewToggleProps {
   activeView: ViewMode;
@@ -34,6 +34,17 @@ export default function ViewToggle({ activeView, onViewChange }: ViewToggleProps
       >
         <LayoutList className="w-4 h-4" />
         <span>Recent</span>
+      </button>
+      <button
+        onClick={() => onViewChange('notes')}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-all ${
+          activeView === 'notes'
+            ? 'bg-background shadow-sm text-foreground'
+            : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        <FileText className="w-4 h-4" />
+        <span>Notes</span>
       </button>
     </div>
   );

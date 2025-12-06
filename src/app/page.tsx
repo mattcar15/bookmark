@@ -8,6 +8,7 @@ import ViewToggle, { ViewMode } from '@/components/ViewToggle';
 import MemoryList from '@/components/MemoryList';
 import BreadcrumbNav, { BreadcrumbItem } from '@/components/BreadcrumbNav';
 import DetailView from '@/components/DetailView';
+import NotesView from '@/components/NotesView';
 import { Bookmark, SlidersHorizontal, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import memoryService from '@/services/memoryService';
@@ -261,7 +262,7 @@ export default function Home() {
       </div>
 
       {/* Main content - scrollable area */}
-      <div className="flex-1 overflow-auto pb-32 flex flex-col">
+      <div className={`flex-1 overflow-auto flex flex-col ${viewMode === 'notes' ? 'pb-8' : 'pb-32'}`}>
         <div className="p-8 pt-1 flex-1 flex flex-col">
           <div className="max-w-6xl w-full mx-auto flex flex-col gap-6 flex-1">
             {/* Header */}
@@ -331,13 +332,16 @@ export default function Home() {
               <Priorities onPrioritySearch={handlePrioritySearch} compact={true} />
             )}
 
-            {/* Breadcrumb Navigation - shown when navigating detail views */}
-            {detailStack.length > 0 && (
+            {/* Breadcrumb Navigation - shown when navigating detail views (not in notes mode) */}
+            {viewMode !== 'notes' && detailStack.length > 0 && (
               <BreadcrumbNav items={breadcrumbs} onNavigate={handleBreadcrumbNavigate} />
             )}
 
             {/* Content Area - switches based on view mode and detail state */}
-            {similarSearchState ? (
+            {viewMode === 'notes' ? (
+              // Show notes view
+              <NotesView />
+            ) : similarSearchState ? (
               // Show similar items in list view
               <MemoryList
                 memories={similarSearchState.items.map(item => ({
@@ -397,24 +401,26 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Fixed bottom prompt box with gradient fade */}
-      <div className="absolute bottom-0 left-0 right-0 z-50">
-        {/* Gradient fade overlay */}
-        <div className="h-16 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none" />
-        
-        {/* Prompt box container */}
-        <div className="bg-background px-8 pb-6">
-          <div className="max-w-6xl w-full mx-auto">
-            <PromptBox 
-              onSearchResults={handleSearchResults} 
-              onSearchStart={handleSearchStart}
-              isLoading={isLoading}
-              activePriorityFilter={activePriorityFilter}
-              onRemovePriorityFilter={handleRemovePriorityFilter}
-            />
+      {/* Fixed bottom prompt box with gradient fade - hide in notes mode */}
+      {viewMode !== 'notes' && (
+        <div className="absolute bottom-0 left-0 right-0 z-50">
+          {/* Gradient fade overlay */}
+          <div className="h-16 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none" />
+          
+          {/* Prompt box container */}
+          <div className="bg-background px-8 pb-6">
+            <div className="max-w-6xl w-full mx-auto">
+              <PromptBox 
+                onSearchResults={handleSearchResults} 
+                onSearchStart={handleSearchStart}
+                isLoading={isLoading}
+                activePriorityFilter={activePriorityFilter}
+                onRemovePriorityFilter={handleRemovePriorityFilter}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
