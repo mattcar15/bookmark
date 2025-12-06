@@ -261,72 +261,76 @@ export default function Home() {
         <div className="flex-1" data-tauri-drag-region />
       </div>
 
-      {/* Main content - scrollable area */}
-      <div className={`flex-1 overflow-auto flex flex-col ${viewMode === 'notes' ? 'pb-8' : 'pb-32'}`}>
-        <div className="p-8 pt-1 flex-1 flex flex-col">
-          <div className="max-w-6xl w-full mx-auto flex flex-col gap-6 flex-1">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Bookmark className="w-6 h-6 fill-foreground" />
-              </div>
+      {/* Fixed Header - stays at top */}
+      <div className="shrink-0 px-8 pb-4">
+        <div className="max-w-6xl w-full mx-auto">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Bookmark className="w-6 h-6 fill-foreground" />
+            </div>
+            
+            {/* Right side controls */}
+            <div className="flex items-center gap-3">
+              {/* View Toggle */}
+              <ViewToggle activeView={viewMode} onViewChange={setViewMode} />
               
-              {/* Right side controls */}
-              <div className="flex items-center gap-3">
-                {/* View Toggle */}
-                <ViewToggle activeView={viewMode} onViewChange={setViewMode} />
-                
-                {/* Theme Toggle */}
+              {/* Theme Toggle */}
+              <button
+                onClick={toggleTheme}
+                className="p-1.5 hover:bg-muted rounded-md transition-colors"
+                aria-label="Toggle theme"
+              >
+                {mounted && (theme === 'dark' ? (
+                  <Sun className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <Moon className="w-4 h-4 text-muted-foreground" />
+                ))}
+                {!mounted && <div className="w-4 h-4" />}
+              </button>
+              
+              {/* Filter Toggle - Ghost Button */}
+              <div className="relative" ref={filtersRef}>
                 <button
-                  onClick={toggleTheme}
+                  onClick={() => setShowFilters(!showFilters)}
                   className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                  aria-label="Toggle theme"
                 >
-                  {mounted && (theme === 'dark' ? (
-                    <Sun className="w-4 h-4 text-muted-foreground" />
-                  ) : (
-                    <Moon className="w-4 h-4 text-muted-foreground" />
-                  ))}
-                  {!mounted && <div className="w-4 h-4" />}
+                  <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
                 </button>
                 
-                {/* Filter Toggle - Ghost Button */}
-                <div className="relative" ref={filtersRef}>
-                  <button
-                    onClick={() => setShowFilters(!showFilters)}
-                    className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                  >
-                    <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
-                  </button>
-                  
-                  {/* Filters Popover */}
-                  {showFilters && (
-                    <div className="absolute right-0 top-10 w-64 bg-card border border-border rounded-lg shadow-xl z-50 p-4">
-                      <div className="mb-4">
-                        <label className="text-sm font-medium text-foreground block mb-2">
-                          Starting Window
-                        </label>
-                        <select
-                          value={startingWindow}
-                          onChange={(e) => {
-                            setStartingWindow(e.target.value);
-                          }}
-                          className="w-full bg-muted text-foreground text-sm rounded-md px-3 py-2 border border-border focus:outline-none focus:ring-2 focus:ring-ring"
-                        >
-                          <option value="auto">Auto</option>
-                          <option value="hour">Hour</option>
-                          <option value="day">Day</option>
-                          <option value="week">Week</option>
-                          <option value="month">Month</option>
-                          <option value="year">Year</option>
-                        </select>
-                      </div>
+                {/* Filters Popover */}
+                {showFilters && (
+                  <div className="absolute right-0 top-10 w-64 bg-card border border-border rounded-lg shadow-xl z-50 p-4">
+                    <div className="mb-4">
+                      <label className="text-sm font-medium text-foreground block mb-2">
+                        Starting Window
+                      </label>
+                      <select
+                        value={startingWindow}
+                        onChange={(e) => {
+                          setStartingWindow(e.target.value);
+                        }}
+                        className="w-full bg-muted text-foreground text-sm rounded-md px-3 py-2 border border-border focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        <option value="auto">Auto</option>
+                        <option value="hour">Hour</option>
+                        <option value="day">Day</option>
+                        <option value="week">Week</option>
+                        <option value="month">Month</option>
+                        <option value="year">Year</option>
+                      </select>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
+          </div>
+        </div>
+      </div>
 
+      {/* Main content - scrollable area */}
+      <div className={`flex-1 overflow-auto flex flex-col ${viewMode === 'notes' ? 'pb-8' : 'pb-32'}`}>
+        <div className="px-8 flex-1 flex flex-col">
+          <div className="max-w-6xl w-full mx-auto flex flex-col gap-6 flex-1">
             {/* Priorities Section - Only show in timeline mode */}
             {viewMode === 'timeline' && (
               <Priorities onPrioritySearch={handlePrioritySearch} compact={true} />

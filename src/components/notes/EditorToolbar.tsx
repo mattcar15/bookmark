@@ -120,7 +120,7 @@ export const EditorToolbar = ({ editor }: EditorToolbarProps) => {
               ) : (
                 <Heading3 className="w-4 h-4" />
               )}
-              <span className="hidden sm:inline">{getCurrentBlockType()}</span>
+              <span className="ml-1 hidden sm:inline">{getCurrentBlockType()}</span>
               <ChevronDown className="w-3 h-3" />
             </button>
           }

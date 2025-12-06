@@ -350,21 +350,72 @@
 
 /* Table styles */
 .ProseMirror table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   table-layout: fixed;
   width: 100%;
   margin-bottom: 0.75rem;
   overflow: hidden;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
 }
 
 .ProseMirror td,
 .ProseMirror th {
   min-width: 1em;
   border: 1px solid var(--border);
+  border-top: none;
+  border-left: none;
   padding: 0.5rem 0.75rem;
   vertical-align: top;
   box-sizing: border-box;
   position: relative;
+}
+
+/* First row cells get top border from table */
+.ProseMirror tr:first-child th,
+.ProseMirror tr:first-child td {
+  border-top: none;
+}
+
+/* First column cells - no left border */
+.ProseMirror td:first-child,
+.ProseMirror th:first-child {
+  border-left: none;
+}
+
+/* Last column cells - no right border */
+.ProseMirror td:last-child,
+.ProseMirror th:last-child {
+  border-right: none;
+}
+
+/* Last row cells - no bottom border */
+.ProseMirror tr:last-child td,
+.ProseMirror tr:last-child th {
+  border-bottom: none;
+}
+
+/* Corner radius for first row */
+.ProseMirror tr:first-child th:first-child,
+.ProseMirror tr:first-child td:first-child {
+  border-top-left-radius: 0.5rem;
+}
+
+.ProseMirror tr:first-child th:last-child,
+.ProseMirror tr:first-child td:last-child {
+  border-top-right-radius: 0.5rem;
+}
+
+/* Corner radius for last row */
+.ProseMirror tr:last-child td:first-child,
+.ProseMirror tr:last-child th:first-child {
+  border-bottom-left-radius: 0.5rem;
+}
+
+.ProseMirror tr:last-child td:last-child,
+.ProseMirror tr:last-child th:last-child {
+  border-bottom-right-radius: 0.5rem;
 }
 
 .ProseMirror th {
@@ -373,17 +424,10 @@
   background-color: var(--muted);
 }
 
-.ProseMirror .selectedCell:after {
-  z-index: 2;
-  position: absolute;
-  content: "";
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  background: var(--primary);
-  opacity: 0.1;
-  pointer-events: none;
+.ProseMirror .selectedCell {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  background-color: color-mix(in srgb, var(--primary) 5%, transparent);
 }
 
 .ProseMirror .column-resize-handle {
